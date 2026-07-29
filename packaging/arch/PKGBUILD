@@ -1,0 +1,48 @@
+# Maintainer: Rufus Linux contributors
+pkgname=rufus-linux
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Format and create bootable USB drives (Linux port inspired by Rufus)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/NitroDiesel/rufus-linux"
+license=('GPL-3.0-or-later')
+depends=('polkit' 'util-linux' 'parted' 'dosfstools' 'fontconfig' 'freetype2'
+         'libxkbcommon' 'wayland' 'libx11' 'libxcb')
+optdepends=(
+  'exfatprogs: exFAT formatting'
+  'ntfs-3g: NTFS formatting'
+  'e2fsprogs: ext2/3/4 formatting'
+  'udftools: UDF formatting'
+  'gzip: gzip and Unix compress image support'
+  'bzip2: bzip2 image support'
+  'xz: xz/lzma image support'
+  'zstd: zstd image support'
+  'libarchive: zip image support'
+)
+makedepends=('cargo' 'rust' 'base-devel')
+# Release automation replaces the checksum when publishing a signed tag.
+source=("$pkgname-$pkgver.tar.gz::https://github.com/NitroDiesel/rufus-linux/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  cargo build --release --locked
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/rufus-linux "$pkgdir/usr/bin/rufus-linux"
+  install -Dm755 target/release/rufus-linux-helper "$pkgdir/usr/libexec/rufus-linux-helper"
+  install -Dm644 packaging/desktop/io.github.nitrodiesel.rufus-linux.desktop \
+    "$pkgdir/usr/share/applications/io.github.nitrodiesel.rufus-linux.desktop"
+  install -Dm644 packaging/metainfo/io.github.nitrodiesel.rufus-linux.metainfo.xml \
+    "$pkgdir/usr/share/metainfo/io.github.nitrodiesel.rufus-linux.metainfo.xml"
+  install -Dm644 packaging/polkit/io.github.nitrodiesel.rufus-linux.policy \
+    "$pkgdir/usr/share/polkit-1/actions/io.github.nitrodiesel.rufus-linux.policy"
+  install -Dm644 packaging/tmpfiles/rufus-linux.conf \
+    "$pkgdir/usr/lib/tmpfiles.d/rufus-linux.conf"
+  install -Dm644 assets/icons/rufus-linux-64.png \
+    "$pkgdir/usr/share/icons/hicolor/64x64/apps/io.github.nitrodiesel.rufus-linux.png"
+  install -Dm644 LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

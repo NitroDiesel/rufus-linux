@@ -1,0 +1,15 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: rufus-linux
+Source: https://github.com/NitroDiesel/rufus-linux
+
+Files: *
+Copyright: 2026 Rufus Linux contributors
+License: GPL-3+
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or any later version.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 is available in /usr/share/common-licenses/GPL-3.

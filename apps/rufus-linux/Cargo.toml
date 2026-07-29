@@ -1,0 +1,28 @@
+[package]
+name = "rufus-linux"
+description = "Rufus Linux desktop application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rufus-linux"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+rufus-core = { path = "../../crates/rufus-core", features = ["serde"] }
+rufus-helper-protocol = { path = "../../crates/rufus-helper-protocol" }
+rufus-linux-platform = { path = "../../crates/rufus-linux-platform" }
+rufus-image = { path = "../../crates/rufus-image" }
+slint = { version = "=1.9.2", default-features = false, features = ["backend-winit", "renderer-femtovg", "std", "accessibility", "compat-1-2"] }
+ashpd = "=0.9.3"
+pollster = "=0.3.0"
+
+[build-dependencies]
+slint-build = "=1.9.2"

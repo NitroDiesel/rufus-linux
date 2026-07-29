@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.nitrodiesel.rufus-linux</id>
+  <name>Rufus Linux</name>
+  <summary>Format and create bootable USB drives</summary>
+  <developer id="io.github.nitrodiesel">
+    <name>Rufus Linux contributors</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>
+      Rufus Linux is an independent Linux port inspired by Rufus. It helps
+      inspect, format, and write bootable images to removable media with a
+      clear safety model: the desktop stays unprivileged; raw-disk work runs
+      in a polkit-authorized helper.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.nitrodiesel.rufus-linux.desktop</launchable>
+  <url type="homepage">https://github.com/NitroDiesel/rufus-linux</url>
+  <provides>
+    <binary>rufus-linux</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-07-29"/>
+  </releases>
+</component>

@@ -1,0 +1,43 @@
+[workspace]
+members = [
+    "apps/rufus-linux",
+    "crates/rufus-core",
+    "crates/rufus-helper-protocol",
+    "crates/rufus-linux-platform",
+    "crates/rufus-helper",
+    "crates/rufus-image",
+    "crates/rufus-boot",
+    "crates/rufus-downloads",
+    "crates/rufus-i18n",
+]
+default-members = [
+    "apps/rufus-linux",
+    "crates/rufus-core",
+    "crates/rufus-helper",
+    "crates/rufus-helper-protocol",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+authors = ["Rufus Linux contributors"]
+repository = "https://github.com/NitroDiesel/rufus-linux"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+checked_conversions = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,46 @@
+// Device Workbench design tokens. The host may bind dark-mode, high-contrast,
+// and reduced-motion to the desktop environment.
+export global Theme {
+    in-out property <bool> dark-mode: true;
+    in-out property <bool> high-contrast: false;
+    in-out property <bool> reduced-motion: false;
+
+    out property <color> canvas: dark-mode ? #10171e : #f2f5f6;
+    out property <color> surface: dark-mode ? #15212a : #e8edef;
+    out property <color> surface-raised: dark-mode ? #192631 : #ffffff;
+    out property <color> border: dark-mode ? #344653 : #b8c5ca;
+    out property <color> text: dark-mode ? #edf2f4 : #16232c;
+    out property <color> muted: dark-mode ? #9babb4 : #5a6c76;
+    out property <color> selection: dark-mode ? #4c8dff : #1f67d8;
+    out property <color> accent: dark-mode ? #43c7a5 : #087d67;
+    out property <color> accent-strong: dark-mode ? #62d4b7 : #066351;
+    out property <color> warning: dark-mode ? #f0b35a : #9a5a00;
+    out property <color> danger: dark-mode ? #ff6b64 : #b4232d;
+    out property <color> focus: dark-mode ? #76a7ff : #1f67d8;
+    out property <color> track: dark-mode ? #2a3740 : #d7e0e3;
+    out property <color> accent-ink: dark-mode ? #071a16 : #ffffff;
+    out property <color> scrim: #00000099;
+
+    out property <brush> accent-soft: dark-mode ? #27c2a32e : #087e6b24;
+    out property <brush> selection-soft: dark-mode ? #4c8dff2e : #1f67d824;
+    out property <brush> danger-soft: dark-mode ? #ea6a6a24 : #b4232d1f;
+    out property <brush> warning-soft: dark-mode ? #f0b35a24 : #9a5a001f;
+
+    out property <string> display-font: "DejaVu Sans";
+    out property <string> body-font: "DejaVu Sans";
+    out property <string> data-font: "DejaVu Sans Mono";
+
+    out property <length> space-1: 4px;
+    out property <length> space-2: 8px;
+    out property <length> space-3: 12px;
+    out property <length> space-4: 16px;
+    out property <length> space-5: 20px;
+    out property <length> space-6: 24px;
+    out property <length> space-8: 32px;
+
+    out property <length> control-height: 36px;
+    out property <length> icon-button-size: 36px;
+    out property <length> section-radius: 10px;
+    out property <length> control-radius: 6px;
+    out property <length> border-width: high-contrast ? 2px : 1px;
+}

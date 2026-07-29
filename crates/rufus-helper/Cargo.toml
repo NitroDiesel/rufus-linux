@@ -1,0 +1,25 @@
+[package]
+name = "rufus-helper"
+description = "Privileged helper for raw-device operations (polkit-authorized)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rufus-linux-helper"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+rufus-core = { path = "../rufus-core", features = ["serde"] }
+rufus-helper-protocol = { path = "../rufus-helper-protocol" }
+rufus-linux-platform = { path = "../rufus-linux-platform" }
+thiserror = "2"
+fs2 = "0.4"
+sha2 = "0.10"
+libc = "0.2"

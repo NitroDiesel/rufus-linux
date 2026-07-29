@@ -1,0 +1,12 @@
+/target/
+**/target/
+*.log
+*.swp
+*~
+.idea/
+.vscode/
+.DS_Store
+*.AppImage
+/dist/
+/debian/files
+/debian/.debhelper/
