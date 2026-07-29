@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --locked --offline
+
+override_dh_auto_test:
+	cargo test --workspace --locked --offline
+
+override_dh_auto_install:
+	install -Dm0755 target/release/rufus-linux \
+		debian/rufus-linux/usr/bin/rufus-linux
+	install -Dm0755 target/release/rufus-linux-helper \
+		debian/rufus-linux/usr/libexec/rufus-linux-helper
+	install -Dm0644 packaging/desktop/io.github.nitrodiesel.rufus-linux.desktop \
+		debian/rufus-linux/usr/share/applications/io.github.nitrodiesel.rufus-linux.desktop
+	install -Dm0644 packaging/metainfo/io.github.nitrodiesel.rufus-linux.metainfo.xml \
+		debian/rufus-linux/usr/share/metainfo/io.github.nitrodiesel.rufus-linux.metainfo.xml
+	install -Dm0644 packaging/polkit/io.github.nitrodiesel.rufus-linux.policy \
+		debian/rufus-linux/usr/share/polkit-1/actions/io.github.nitrodiesel.rufus-linux.policy
+	install -Dm0644 packaging/tmpfiles/rufus-linux.conf \
+		debian/rufus-linux/usr/lib/tmpfiles.d/rufus-linux.conf
+	install -Dm0644 assets/icons/rufus-linux-64.png \
+		debian/rufus-linux/usr/share/icons/hicolor/64x64/apps/io.github.nitrodiesel.rufus-linux.png

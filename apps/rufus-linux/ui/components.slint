@@ -1,0 +1,337 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component FieldLabel inherits Text {
+    in property <string> label;
+    text: label;
+    color: Theme.text;
+    font-family: Theme.body-font;
+    font-size: 12px;
+    font-weight: 600;
+    vertical-alignment: center;
+}
+
+export component HelperLabel inherits Text {
+    in property <string> message;
+    in property <bool> is-error: false;
+    text: message;
+    color: is-error ? Theme.danger : Theme.muted;
+    font-family: Theme.body-font;
+    font-size: 12px;
+    wrap: word-wrap;
+}
+
+export component SectionHeader inherits HorizontalLayout {
+    in property <string> title;
+    height: 40px;
+    spacing: Theme.space-3;
+    alignment: center;
+
+    Text {
+        text: root.title;
+        color: Theme.text;
+        font-family: Theme.display-font;
+        font-size: 18px;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        height: Theme.high-contrast ? 2px : 1px;
+        horizontal-stretch: 1;
+        background: Theme.border;
+    }
+}
+
+export component WorkbenchButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> enabled: true;
+    in property <bool> compact: false;
+    in property <string> accessible-name: text;
+    callback clicked;
+
+    height: Theme.control-height;
+    min-width: compact ? 36px : 96px;
+    border-radius: Theme.control-radius;
+    border-width: primary ? 0px : Theme.border-width;
+    border-color: danger ? Theme.danger : (touch.has-hover ? Theme.muted : Theme.border);
+    background: !enabled ? Theme.track
+        : danger ? (touch.pressed ? Theme.danger : (touch.has-hover ? Theme.danger-soft : Theme.surface-raised))
+        : primary ? (touch.pressed ? Theme.accent-strong : Theme.accent)
+        : touch.has-hover ? Theme.accent-soft : Theme.surface-raised;
+    opacity: enabled ? 1.0 : 0.48;
+    accessible-role: button;
+    accessible-label: accessible-name;
+    accessible-enabled: enabled;
+
+    Text {
+        text: root.text;
+        color: root.danger ? Theme.danger : (root.primary ? Theme.accent-ink : Theme.text);
+        font-family: Theme.body-font;
+        font-size: 13px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ToolButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    width: Theme.icon-button-size;
+    height: Theme.icon-button-size;
+    border-radius: Theme.control-radius;
+    background: selected ? Theme.selection-soft : (touch.has-hover ? Theme.surface-raised : transparent);
+    border-width: selected ? Theme.border-width : 0px;
+    border-color: selected ? Theme.selection : transparent;
+    opacity: enabled ? 1 : 0.42;
+    accessible-role: button;
+    accessible-label: label;
+
+    Text {
+        text: root.glyph;
+        color: root.selected ? Theme.selection : Theme.muted;
+        font-family: Theme.body-font;
+        font-size: 17px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component StatusBadge inherits Rectangle {
+    in property <string> text;
+    in property <string> tone: "neutral";
+    height: 24px;
+    min-width: badge-text.preferred-width + 18px;
+    border-radius: 12px;
+    border-width: Theme.border-width;
+    border-color: tone == "warning" ? Theme.warning : (tone == "danger" ? Theme.danger : (tone == "success" ? Theme.accent : Theme.border));
+    background: tone == "warning" ? Theme.warning-soft : (tone == "danger" ? Theme.danger-soft : (tone == "success" ? Theme.accent-soft : Theme.surface-raised));
+
+    badge-text := Text {
+        text: root.text;
+        color: root.tone == "warning" ? Theme.warning : (root.tone == "danger" ? Theme.danger : (root.tone == "success" ? Theme.accent : Theme.muted));
+        font-family: Theme.body-font;
+        font-size: 11px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component DisclosureHeader inherits Rectangle {
+    in property <string> text;
+    in property <string> summary: "";
+    in-out property <bool> open: false;
+    callback toggled(bool);
+
+    height: summary == "" ? 36px : 44px;
+    border-radius: Theme.control-radius;
+    background: touch.has-hover ? Theme.accent-soft : transparent;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-description: summary;
+
+    HorizontalLayout {
+        padding-left: Theme.space-2;
+        padding-right: Theme.space-2;
+        spacing: Theme.space-2;
+        alignment: center;
+
+        Text {
+            width: 16px;
+            text: root.open ? "⌄" : "›";
+            color: Theme.muted;
+            font-family: Theme.body-font;
+            font-size: 18px;
+            vertical-alignment: center;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.text;
+                color: Theme.text;
+                font-family: Theme.body-font;
+                font-size: 13px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            if root.summary != "": Text {
+                text: root.summary;
+                color: Theme.muted;
+                font-family: Theme.body-font;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.open = !root.open;
+            root.toggled(root.open);
+        }
+    }
+}
+
+export component LabeledLineEdit inherits VerticalLayout {
+    in property <string> label;
+    in property <string> helper: "";
+    in property <bool> enabled: true;
+    in property <bool> invalid: false;
+    in property <string> accessible-name: label;
+    in-out property <string> value <=> input.text;
+    spacing: Theme.space-1;
+
+    FieldLabel { label: root.label; }
+    input := LineEdit {
+        enabled: root.enabled;
+        accessible-label: root.accessible-name;
+    }
+    if root.helper != "": HelperLabel { message: root.helper; is-error: root.invalid; }
+}
+
+export component LabeledComboBox inherits VerticalLayout {
+    in property <string> label;
+    in property <[string]> choices;
+    in property <bool> enabled: true;
+    in property <string> helper: "";
+    in-out property <string> value <=> combo.current-value;
+    callback selected(string);
+    spacing: Theme.space-1;
+
+    FieldLabel { label: root.label; }
+    combo := ComboBox {
+        model: root.choices;
+        enabled: root.enabled;
+        accessible-label: root.label;
+        selected(value) => { root.selected(value); }
+    }
+    if root.helper != "": HelperLabel { message: root.helper; }
+}
+
+export component TargetPlate inherits Rectangle {
+    in property <string> device-name: "SanDisk Ultra";
+    in property <string> device-path: "/dev/sdb";
+    in property <string> capacity: "31.9 GB";
+    in property <bool> destructive: false;
+
+    height: 54px;
+    border-radius: Theme.control-radius;
+    border-width: Theme.border-width;
+    border-color: destructive ? Theme.warning : Theme.border;
+    background: destructive ? Theme.warning-soft : Theme.surface-raised;
+    accessible-role: groupbox;
+    accessible-label: "Target device " + device-name + ", " + device-path + ", " + capacity;
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        spacing: Theme.space-3;
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.device-name;
+                color: Theme.text;
+                font-family: Theme.body-font;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            Text {
+                text: root.device-path;
+                color: Theme.muted;
+                font-family: Theme.data-font;
+                font-size: 11px;
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        Text {
+            text: root.capacity;
+            color: destructive ? Theme.warning : Theme.text;
+            font-family: Theme.data-font;
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Rufus's signature progress element: exactly sixteen flash-memory blocks.
+export component WriteTrack inherits Rectangle {
+    in property <string> phase: "READY";
+    in property <string> operation: "Ready to write";
+    in property <float> progress: 0;
+    in property <string> telemetry: "31.9 GB";
+    in property <string> tone: "neutral";
+    in property <bool> active: false;
+
+    height: 72px;
+    border-radius: Theme.control-radius;
+    border-width: Theme.border-width;
+    border-color: tone == "error" ? Theme.danger : (tone == "warning" ? Theme.warning : Theme.border);
+    background: Theme.surface-raised;
+    accessible-role: progress-indicator;
+    accessible-label: operation;
+    accessible-value: progress;
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-description: phase + ", " + round(progress) + " percent, " + telemetry;
+
+    VerticalLayout {
+        padding: Theme.space-2;
+        spacing: Theme.space-2;
+
+        HorizontalLayout {
+            Text {
+                text: root.phase;
+                color: root.tone == "error" ? Theme.danger : (root.tone == "warning" ? Theme.warning : (root.active ? Theme.accent : Theme.muted));
+                font-family: Theme.data-font;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.6px;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: root.telemetry;
+                color: Theme.text;
+                font-family: Theme.data-font;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            height: 22px;
+            spacing: 3px;
+            for block[index] in 16: Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 2px;
+                border-width: Theme.high-contrast ? 2px : 1px;
+                border-color: root.tone == "error" && ((index + 1) * 6.25 <= root.progress + 6.25) ? Theme.danger : Theme.border;
+                background: ((index + 1) * 6.25 <= root.progress)
+                    ? (root.tone == "error" ? Theme.danger : (root.tone == "warning" ? Theme.warning : Theme.accent))
+                    : Theme.track;
+            }
+        }
+    }
+}

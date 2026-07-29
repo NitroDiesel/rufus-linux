@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: rustfmt, clippy
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
+            desktop-file-utils appstream libxml2-utils parted dosfstools
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Lint libraries
+        run: cargo clippy --workspace --all-targets --exclude rufus-linux --locked -- -D warnings
+      - name: Lint desktop
+        run: cargo clippy -p rufus-linux --all-targets --locked -- -D warnings
+      - name: Release build
+        run: cargo build --workspace --release --locked
+      - name: Desktop metadata
+        run: |
+          desktop-file-validate packaging/desktop/io.github.nitrodiesel.rufus-linux.desktop
+          appstreamcli validate --no-net packaging/metainfo/io.github.nitrodiesel.rufus-linux.metainfo.xml
+          xmllint --noout packaging/polkit/io.github.nitrodiesel.rufus-linux.policy
+      - name: Helper smoke test
+        run: target/release/rufus-linux-helper --dry-run /dev/null
+
+  distro-builds:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: Debian
+            image: rust:1.85-bookworm
+            script: scripts/ci/debian.sh
+          - distro: Fedora
+            image: fedora:42
+            script: scripts/ci/fedora.sh
+          - distro: Arch
+            image: archlinux:base-devel
+            script: scripts/ci/arch.sh
+    name: ${{ matrix.distro }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in distribution container
+        run: >-
+          docker run --rm
+          -v "$PWD:/src"
+          -w /src
+          -e CARGO_TARGET_DIR=/tmp/rufus-target
+          "${{ matrix.image }}"
+          bash "${{ matrix.script }}"

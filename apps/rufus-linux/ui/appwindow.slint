@@ -1,0 +1,568 @@
+// Device Workbench — neat hierarchy, signature write-track, clear danger states.
+import { ScrollView, CheckBox, Slider, Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import {
+    WorkbenchButton, ToolButton, StatusBadge, SectionHeader,
+    LabeledComboBox, LabeledLineEdit, TargetPlate, WriteTrack, HelperLabel, FieldLabel
+} from "components.slint";
+
+export component AppWindow inherits Window {
+    title: "Rufus Linux";
+    preferred-width: 560px;
+    preferred-height: 720px;
+    min-width: 480px;
+    min-height: 560px;
+    background: Theme.canvas;
+    icon: @image-url("../../../assets/icons/rufus-linux-64.png");
+    init => {
+        Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
+    }
+    changed dark-mode => {
+        Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    // —— Bound state from Rust ——
+    in-out property <bool> dark-mode <=> Theme.dark-mode;
+    in-out property <[string]> device-labels;
+    in-out property <int> selected-device: 0;
+    in-out property <string> device-name: "No device selected";
+    in-out property <string> device-path: "—";
+    in-out property <string> device-capacity: "—";
+    in-out property <bool> device-risky: false;
+
+    in-out property <[string]> boot-choices;
+    in-out property <string> boot-selection: "Disk or ISO image";
+    in-out property <string> image-path: "";
+    in-out property <string> image-summary: "No image selected";
+    in-out property <string> image-notes: "";
+
+    in-out property <[string]> partition-choices;
+    in-out property <string> partition-scheme: "GPT";
+    in-out property <[string]> target-choices;
+    in-out property <string> target-system: "UEFI (non CSM)";
+    in-out property <[string]> filesystem-choices;
+    in-out property <string> filesystem: "FAT32";
+    in-out property <[string]> cluster-choices;
+    in-out property <string> cluster-size: "Default";
+    in-out property <string> volume-label: "RUFUS";
+
+    in-out property <bool> quick-format: true;
+    in-out property <bool> check-bad-blocks: false;
+    in-out property <bool> verify-write: true;
+    in-out property <bool> list-usb-hdd: false;
+    in-out property <bool> list-fixed-disks: false;
+
+    in-out property <float> persistence-gb: 0;
+    in-out property <float> persistence-max-gb: 0;
+    in-out property <bool> persistence-enabled: false;
+
+    in-out property <string> status-phase: "READY";
+    in-out property <string> status-operation: "Ready";
+    in-out property <float> status-progress: 0;
+    in-out property <string> status-telemetry: "";
+    in-out property <string> status-tone: "neutral";
+    in-out property <bool> status-active: false;
+    in-out property <string> status-line: "Select a device and image, then Start.";
+
+    in-out property <bool> can-start: false;
+    in-out property <bool> is-busy: false;
+    in-out property <bool> show-confirm: false;
+    in-out property <string> confirm-title: "Write image";
+    in-out property <string> confirm-body: "";
+    in-out property <bool> show-log: false;
+    in-out property <string> log-text: "";
+    in-out property <bool> show-about: false;
+    in-out property <bool> show-advanced: false;
+    in-out property <string> capability-hint: "";
+    in-out property <string> app-version: "0.1.0";
+
+    // —— Callbacks ——
+    callback refresh-devices();
+    callback device-selected(string);
+    callback boot-selected(string);
+    callback select-image();
+    callback partition-selected(string);
+    callback target-selected(string);
+    callback filesystem-selected(string);
+    callback cluster-selected(string);
+    callback start-clicked();
+    callback cancel-clicked();
+    callback confirm-accepted();
+    callback confirm-rejected();
+    callback toggle-log();
+    callback toggle-about();
+    callback toggle-advanced();
+    callback toggle-theme();
+    callback compute-checksums();
+    callback persistence-changed(float);
+    callback option-changed();
+    callback close-clicked();
+
+    VerticalLayout {
+        padding: Theme.space-4;
+        spacing: Theme.space-3;
+
+        // Header
+        HorizontalLayout {
+            spacing: Theme.space-3;
+            alignment: center;
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: "Rufus Linux";
+                    color: Theme.text;
+                    font-family: Theme.display-font;
+                    font-size: 22px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "Device Workbench";
+                    color: Theme.muted;
+                    font-family: Theme.body-font;
+                    font-size: 12px;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            ToolButton { glyph: root.dark-mode ? "☀" : "☾"; label: "Switch theme"; clicked => { root.toggle-theme(); } }
+            ToolButton { glyph: "#"; label: "Checksums"; enabled: root.image-path != ""; clicked => { root.compute-checksums(); } }
+            ToolButton { glyph: "☰"; label: "Log"; selected: root.show-log; clicked => { root.toggle-log(); } }
+            ToolButton { glyph: "⚙"; label: "Advanced"; selected: root.show-advanced; clicked => { root.toggle-advanced(); } }
+            ToolButton { glyph: "ⓘ"; label: "About"; selected: root.show-about; clicked => { root.toggle-about(); } }
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+            viewport-height: workbench.preferred-height;
+            workbench := VerticalLayout {
+                width: parent.width;
+                spacing: Theme.space-3;
+
+        // Drive
+        Rectangle {
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.border;
+            background: Theme.surface;
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-3;
+                SectionHeader { title: "Drive"; }
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    LabeledComboBox {
+                        horizontal-stretch: 1;
+                        label: "Device";
+                        choices: root.device-labels;
+                        value: root.device-labels[root.selected-device];
+                        enabled: !root.is-busy && root.device-name != "No device selected";
+                        selected(v) => {
+                            root.device-selected(v);
+                        }
+                    }
+                    WorkbenchButton {
+                        text: "↻";
+                        compact: true;
+                        enabled: !root.is-busy;
+                        accessible-name: "Refresh devices";
+                        clicked => { root.refresh-devices(); }
+                    }
+                }
+                TargetPlate {
+                    device-name: root.device-name;
+                    device-path: root.device-path;
+                    capacity: root.device-capacity;
+                    destructive: root.device-risky;
+                }
+            }
+        }
+
+        // Boot selection
+        Rectangle {
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.border;
+            background: Theme.surface;
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-3;
+                SectionHeader { title: "Boot selection"; }
+                LabeledComboBox {
+                    label: "Boot selection";
+                    choices: root.boot-choices;
+                    value <=> root.boot-selection;
+                    enabled: !root.is-busy;
+                    selected(v) => { root.boot-selected(v); }
+                }
+                if root.boot-selection == "Disk or ISO image" || root.boot-selection == "Windows To Go": HorizontalLayout {
+                    spacing: Theme.space-2;
+                    alignment: center;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: Theme.space-1;
+                        FieldLabel { label: "Image"; }
+                        Text {
+                            text: root.image-path == "" ? "No file selected" : root.image-path;
+                            color: root.image-path == "" ? Theme.muted : Theme.text;
+                            font-family: Theme.data-font;
+                            font-size: 12px;
+                            overflow: elide;
+                        }
+                        if root.image-summary != "": Text {
+                            text: root.image-summary;
+                            color: Theme.muted;
+                            font-family: Theme.body-font;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+                    WorkbenchButton {
+                        text: "Select";
+                        primary: true;
+                        enabled: !root.is-busy;
+                        clicked => { root.select-image(); }
+                    }
+                }
+                if root.image-notes != "": HelperLabel { message: root.image-notes; }
+                if root.capability-hint != "": HelperLabel {
+                    message: root.capability-hint;
+                    is-error: true;
+                }
+            }
+        }
+
+        // Format options
+        Rectangle {
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.border;
+            background: Theme.surface;
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-3;
+                SectionHeader { title: "Format options"; }
+                HorizontalLayout {
+                    spacing: Theme.space-3;
+                    LabeledComboBox {
+                        horizontal-stretch: 1;
+                        label: "Partition scheme";
+                        choices: root.partition-choices;
+                        value <=> root.partition-scheme;
+                        enabled: !root.is-busy;
+                        selected(v) => { root.partition-selected(v); }
+                    }
+                    LabeledComboBox {
+                        horizontal-stretch: 1;
+                        label: "Target system";
+                        choices: root.target-choices;
+                        value <=> root.target-system;
+                        enabled: !root.is-busy;
+                        selected(v) => { root.target-selected(v); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-3;
+                    LabeledComboBox {
+                        horizontal-stretch: 1;
+                        label: "File system";
+                        choices: root.filesystem-choices;
+                        value <=> root.filesystem;
+                        enabled: !root.is-busy;
+                        selected(v) => { root.filesystem-selected(v); }
+                    }
+                    LabeledComboBox {
+                        horizontal-stretch: 1;
+                        label: "Cluster size";
+                        choices: root.cluster-choices;
+                        value <=> root.cluster-size;
+                        enabled: !root.is-busy;
+                        selected(v) => { root.cluster-selected(v); }
+                    }
+                }
+                LabeledLineEdit {
+                    label: "Volume label";
+                    value <=> root.volume-label;
+                    enabled: !root.is-busy;
+                }
+                if root.persistence-enabled: VerticalLayout {
+                    spacing: Theme.space-1;
+                    FieldLabel { label: "Persistence (" + round(root.persistence-gb * 10) / 10 + " GB)"; }
+                    Slider {
+                        minimum: 0;
+                        maximum: max(root.persistence-max-gb, 0.1);
+                        value <=> root.persistence-gb;
+                        enabled: !root.is-busy;
+                        released(v) => { root.persistence-changed(v); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: Theme.space-2;
+                    CheckBox {
+                        text: "Quick format";
+                        checked <=> root.quick-format;
+                        enabled: !root.is-busy;
+                        toggled => { root.option-changed(); }
+                    }
+                    CheckBox {
+                        text: "Check device for bad blocks";
+                        checked <=> root.check-bad-blocks;
+                        enabled: !root.is-busy;
+                        toggled => { root.option-changed(); }
+                    }
+                    CheckBox {
+                        text: "Verify once written";
+                        checked <=> root.verify-write;
+                        enabled: !root.is-busy;
+                        toggled => { root.option-changed(); }
+                    }
+                }
+            }
+        }
+
+        // Advanced (collapsed by default)
+        if root.show-advanced: Rectangle {
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.warning;
+            background: Theme.surface;
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-2;
+                SectionHeader { title: "Expert options"; }
+                HelperLabel {
+                    message: "These options can expose disks that hold system data. Use only with disposable media.";
+                    is-error: false;
+                }
+                CheckBox {
+                    text: "List USB hard drives";
+                    checked <=> root.list-usb-hdd;
+                    enabled: !root.is-busy;
+                    toggled => { root.option-changed(); root.refresh-devices(); }
+                }
+                CheckBox {
+                    text: "List fixed / internal disks (dangerous)";
+                    checked <=> root.list-fixed-disks;
+                    enabled: !root.is-busy;
+                    toggled => { root.option-changed(); root.refresh-devices(); }
+                }
+            }
+        }
+
+        // Status / write track
+        Rectangle {
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.border;
+            background: Theme.surface;
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-3;
+                HorizontalLayout {
+                    alignment: center;
+                    SectionHeader { title: "Status"; horizontal-stretch: 1; }
+                    StatusBadge {
+                        text: root.status-tone == "error" ? "FAILED"
+                            : root.status-phase == "CANCELLED" ? "CANCELLED"
+                            : root.status-phase == "DONE" ? "DONE"
+                            : root.is-busy ? "BUSY"
+                            : root.can-start ? "READY" : "IDLE";
+                        tone: root.status-tone == "error" ? "danger"
+                            : root.status-phase == "CANCELLED" || root.is-busy ? "warning"
+                            : root.status-phase == "DONE" || root.can-start ? "success" : "neutral";
+                    }
+                }
+                WriteTrack {
+                    phase: root.status-phase;
+                    operation: root.status-operation;
+                    progress: root.status-progress;
+                    telemetry: root.status-telemetry;
+                    tone: root.status-tone;
+                    active: root.status-active;
+                }
+                Text {
+                    text: root.status-line;
+                    color: Theme.muted;
+                    font-family: Theme.body-font;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+            }
+        }
+
+        // Actions
+        HorizontalLayout {
+            spacing: Theme.space-3;
+            WorkbenchButton {
+                text: "Close";
+                enabled: !root.is-busy;
+                clicked => { root.close-clicked(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if root.is-busy: WorkbenchButton {
+                text: "Cancel";
+                danger: true;
+                clicked => { root.cancel-clicked(); }
+            }
+            WorkbenchButton {
+                text: root.boot-selection == "Non bootable" ? "Format device" : "Write image";
+                primary: true;
+                enabled: root.can-start && !root.is-busy;
+                clicked => { root.start-clicked(); }
+            }
+        }
+    }
+
+    // Confirm overlay
+    if root.show-confirm: Rectangle {
+        background: Theme.scrim;
+        TouchArea { /* block clicks through */ }
+        Rectangle {
+            width: min(420px, parent.width - 48px);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.danger;
+            background: Theme.surface-raised;
+            VerticalLayout {
+                padding: Theme.space-5;
+                spacing: Theme.space-4;
+                Text {
+                    text: root.confirm-title;
+                    color: Theme.danger;
+                    font-family: Theme.display-font;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: root.confirm-body;
+                    color: Theme.text;
+                    font-family: Theme.body-font;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-3;
+                    Rectangle { horizontal-stretch: 1; }
+                    WorkbenchButton {
+                        text: "Cancel";
+                        clicked => { root.confirm-rejected(); }
+                    }
+                    WorkbenchButton {
+                        text: "Destroy data";
+                        danger: true;
+                        clicked => { root.confirm-accepted(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Log overlay
+    if root.show-log: Rectangle {
+        background: Theme.scrim;
+        Rectangle {
+            width: min(500px, parent.width - 32px);
+            height: min(420px, parent.height - 32px);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.border;
+            background: Theme.surface-raised;
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-3;
+                HorizontalLayout {
+                    Text {
+                        text: "Log";
+                        color: Theme.text;
+                        font-family: Theme.display-font;
+                        font-size: 16px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    WorkbenchButton {
+                        text: "Close";
+                        compact: true;
+                        clicked => { root.toggle-log(); }
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: Theme.control-radius;
+                    background: Theme.canvas;
+                    border-width: Theme.border-width;
+                    border-color: Theme.border;
+                    ScrollView {
+                        viewport-height: log-body.preferred-height + 16px;
+                        log-body := Text {
+                            x: Theme.space-2;
+                            width: parent.width - 16px;
+                            text: root.log-text == "" ? "Log is empty." : root.log-text;
+                            color: Theme.muted;
+                            font-family: Theme.data-font;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // About overlay
+    if root.show-about: Rectangle {
+        background: Theme.scrim;
+        Rectangle {
+            width: min(400px, parent.width - 48px);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.section-radius;
+            border-width: Theme.border-width;
+            border-color: Theme.border;
+            background: Theme.surface-raised;
+            VerticalLayout {
+                padding: Theme.space-5;
+                spacing: Theme.space-3;
+                Text {
+                    text: "Rufus Linux";
+                    color: Theme.text;
+                    font-family: Theme.display-font;
+                    font-size: 20px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "Version " + root.app-version;
+                    color: Theme.muted;
+                    font-family: Theme.data-font;
+                    font-size: 12px;
+                }
+                Text {
+                    text: "Independent Linux port inspired by Rufus. Formats and writes bootable removable media under GPLv3. Not affiliated with upstream Rufus maintainers.";
+                    color: Theme.text;
+                    font-family: Theme.body-font;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "Destructive writes use a polkit-authorized helper. The desktop process never holds ambient root for raw disks.";
+                    color: Theme.muted;
+                    font-family: Theme.body-font;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    Rectangle { horizontal-stretch: 1; }
+                    WorkbenchButton {
+                        text: "Close";
+                        primary: true;
+                        clicked => { root.toggle-about(); }
+                    }
+                }
+            }
+        }
+    }
+}

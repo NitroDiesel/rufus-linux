@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Rufus Linux
+GenericName=USB Media Writer
+Comment=Format and create bootable USB drives
+Exec=rufus-linux
+Icon=io.github.nitrodiesel.rufus-linux
+Terminal=false
+Categories=System;Filesystem;
+Keywords=usb;iso;boot;format;flash;
+StartupNotify=true

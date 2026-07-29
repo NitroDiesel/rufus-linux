@@ -1,0 +1,19 @@
+Source: rufus-linux
+Section: utils
+Priority: optional
+Maintainer: Rufus Linux contributors <rufus-linux@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85), pkg-config,
+ libfontconfig1-dev, libfreetype-dev, libxkbcommon-dev, libwayland-dev,
+ libx11-dev, libxcb1-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/NitroDiesel/rufus-linux
+
+Package: rufus-linux
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, polkitd, pkexec,
+ util-linux, parted, dosfstools
+Recommends: exfatprogs, ntfs-3g, e2fsprogs, udftools, libarchive-tools,
+ xz-utils, bzip2, zstd
+Description: Format and create bootable USB drives
+ Independent Linux port inspired by Rufus. Writes and formats removable
+ media through a polkit-authorized helper.
