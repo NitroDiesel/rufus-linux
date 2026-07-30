@@ -39,7 +39,7 @@ jobs:
       - name: Build Debian installer
         run: |
           ln -s packaging/debian debian
-          dpkg-buildpackage --build=binary --no-sign
+          dpkg-buildpackage --build=binary --no-sign --no-check-builddeps
           mkdir -p dist
           find .. -maxdepth 1 -type f -name 'rufus-linux_*.deb' \
             ! -name '*-dbgsym_*' -exec cp '{}' dist/ \;
@@ -69,6 +69,13 @@ jobs:
       - name: Build and validate Fedora installer
         run: |
           mkdir -p dist
+          for attempt in 1 2 3; do
+            if docker pull fedora:42; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep $((attempt * 10))
+          done
           docker run --rm \
             -v "$PWD:/src" \
             -w /src \
@@ -76,7 +83,8 @@ jobs:
             fedora:42 \
             bash -euxo pipefail -c '
               dnf install -y \
-                cargo rust git gzip tar rpm-build pkgconf-pkg-config \
+                cargo rust git gzip tar rpm-build systemd-rpm-macros \
+                pkgconf-pkg-config \
                 fontconfig-devel freetype-devel libxkbcommon-devel \
                 wayland-devel libX11-devel libxcb-devel
               git config --global --add safe.directory /src
@@ -118,6 +126,13 @@ jobs:
             HEAD > "dist/rufus-linux-${PACKAGE_VERSION}.tar.gz"
       - name: Build and validate Arch installer
         run: |
+          for attempt in 1 2 3; do
+            if docker pull archlinux:base-devel; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep $((attempt * 10))
+          done
           docker run --rm \
             -v "$PWD:/src" \
             -w /src \

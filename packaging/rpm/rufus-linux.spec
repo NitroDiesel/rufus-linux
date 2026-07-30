@@ -8,6 +8,7 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cargo rust pkgconf fontconfig-devel freetype-devel
 BuildRequires:  libxkbcommon-devel wayland-devel libX11-devel libxcb-devel
+BuildRequires:  systemd-rpm-macros
 Requires:       polkit util-linux parted dosfstools
 Recommends:     exfatprogs ntfs-3g e2fsprogs udftools libarchive xz bzip2 zstd
 
