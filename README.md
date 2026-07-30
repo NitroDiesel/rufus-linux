@@ -56,6 +56,34 @@ cargo run
 
 For the full formatter and image-tool set, install the runtime dependencies listed in [Building and packaging](docs/BUILDING.md). During development, raw writes should be tested against disposable image files or loop devices, never a disk containing useful data.
 
+## Install a release
+
+Download the package for your x86_64 distribution from
+[GitHub Releases](https://github.com/NitroDiesel/rufus-linux/releases).
+Keep `SHA256SUMS` beside the downloaded package and verify it before installing:
+
+```sh
+sha256sum -c SHA256SUMS
+```
+
+Install the matching native package:
+
+```sh
+# Debian or Ubuntu
+sudo apt install ./rufus-linux_0.1.0-1_amd64.deb
+
+# Fedora
+sudo dnf install ./rufus-linux-0.1.0-1.fc42.x86_64.rpm
+
+# Arch Linux
+sudo pacman -U ./rufus-linux-0.1.0-1-x86_64.pkg.tar.zst
+```
+
+The native packages install the desktop application, privileged helper,
+polkit policy, desktop metadata, and required runtime dependencies. Release
+0.1.0 is a technology preview; review the [capability matrix](docs/CAPABILITIES.md)
+before writing to removable media.
+
 ## Install layout
 
 Distribution packages should use these paths:

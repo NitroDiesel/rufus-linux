@@ -1,0 +1,227 @@
+name: Release installers
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "apps/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PACKAGE_VERSION: 0.1.0
+
+jobs:
+  debian:
+    name: Debian package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debhelper devscripts fakeroot pkg-config \
+            libfontconfig1-dev libfreetype-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev libxcb1-dev
+      - name: Prime the locked Cargo cache
+        run: cargo fetch --locked
+      - name: Build Debian installer
+        run: |
+          ln -s packaging/debian debian
+          dpkg-buildpackage --build=binary --no-sign --no-check-builddeps
+          mkdir -p dist
+          find .. -maxdepth 1 -type f -name 'rufus-linux_*.deb' \
+            ! -name '*-dbgsym_*' -exec cp '{}' dist/ \;
+      - name: Validate Debian installer
+        run: |
+          package="$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$package"
+          dpkg-deb --info "$package"
+          dpkg-deb --contents "$package"
+          dpkg-deb --fsys-tarfile "$package" |
+            tar -tf - |
+            grep -Fx './usr/libexec/rufus-linux-helper'
+          dpkg-deb --fsys-tarfile "$package" |
+            tar -tf - |
+            grep -Fx './usr/bin/rufus-linux'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-debian
+          path: dist/*.deb
+          if-no-files-found: error
+
+  fedora:
+    name: Fedora package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and validate Fedora installer
+        run: |
+          mkdir -p dist
+          for attempt in 1 2 3; do
+            if docker pull fedora:42; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep $((attempt * 10))
+          done
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            -e PACKAGE_VERSION \
+            fedora:42 \
+            bash -euxo pipefail -c '
+              dnf install -y \
+                cargo rust git gzip tar rpm-build systemd-rpm-macros \
+                pkgconf-pkg-config \
+                fontconfig-devel freetype-devel libxkbcommon-devel \
+                wayland-devel libX11-devel libxcb-devel
+              git config --global --add safe.directory /src
+              topdir=/tmp/rpmbuild
+              mkdir -p "$topdir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+              git archive --format=tar \
+                --prefix="rufus-linux-${PACKAGE_VERSION}/" HEAD |
+                gzip -n > "$topdir/SOURCES/rufus-linux-${PACKAGE_VERSION}.tar.gz"
+              rpmbuild \
+                --define "_topdir $topdir" \
+                -ba packaging/rpm/rufus-linux.spec
+              package="$(
+                find "$topdir/RPMS" -type f \
+                  -name "rufus-linux-${PACKAGE_VERSION}-*.rpm" \
+                  ! -name "*debug*" -print -quit
+              )"
+              test -n "$package"
+              rpm -qpi "$package"
+              rpm -qpl "$package" | grep -Fx /usr/bin/rufus-linux
+              rpm -qpl "$package" | grep -Fx /usr/libexec/rufus-linux-helper
+              cp "$package" /src/dist/
+            '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-fedora
+          path: dist/*.rpm
+          if-no-files-found: error
+
+  arch:
+    name: Arch package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare source archive
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz \
+            --prefix="rufus-linux-${PACKAGE_VERSION}/" \
+            HEAD > "dist/rufus-linux-${PACKAGE_VERSION}.tar.gz"
+      - name: Build and validate Arch installer
+        run: |
+          for attempt in 1 2 3; do
+            if docker pull archlinux:base-devel; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep $((attempt * 10))
+          done
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            -e PACKAGE_VERSION \
+            archlinux:base-devel \
+            bash -euxo pipefail -c '
+              pacman -Syu --noconfirm \
+                rust cargo polkit util-linux parted dosfstools \
+                fontconfig freetype2 libxkbcommon wayland libx11 libxcb
+              useradd --create-home builder
+              workdir=/home/builder/package
+              install -d -o builder -g builder "$workdir"
+              install -o builder -g builder packaging/arch/PKGBUILD "$workdir/"
+              install -o builder -g builder \
+                "dist/rufus-linux-${PACKAGE_VERSION}.tar.gz" "$workdir/"
+              sed -i \
+                "s|^source=.*|source=(\"rufus-linux-\$pkgver.tar.gz\")|" \
+                "$workdir/PKGBUILD"
+              su builder -c \
+                "cd $workdir && makepkg --cleanbuild --noconfirm"
+              package="$(
+                find "$workdir" -maxdepth 1 -type f \
+                  -name "rufus-linux-*.pkg.tar.zst" -print -quit
+              )"
+              test -n "$package"
+              bsdtar -tf "$package" | grep -Fx usr/bin/rufus-linux
+              bsdtar -tf "$package" |
+                grep -Fx usr/libexec/rufus-linux-helper
+              cp "$package" /src/dist/
+            '
+          rm "dist/rufus-linux-${PACKAGE_VERSION}.tar.gz"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-arch
+          path: dist/*.pkg.tar.zst
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [debian, fedora, arch]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: installer-*
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum ./* | sort -k2 > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Publish installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/release-notes.md <<'EOF'
+          Rufus Linux 0.1.0 is the initial Linux-native technology preview.
+
+          Download the package for your x86_64 distribution:
+
+          - Debian/Ubuntu: `sudo apt install ./rufus-linux_0.1.0-1_amd64.deb`
+          - Fedora: `sudo dnf install ./rufus-linux-0.1.0-1.fc42.x86_64.rpm`
+          - Arch Linux: `sudo pacman -U ./rufus-linux-0.1.0-1-x86_64.pkg.tar.zst`
+
+          Verify the download first with `sha256sum -c SHA256SUMS`.
+
+          This preview supports safe formatting and raw, compressed-raw, and
+          ISOHybrid writing with verification. Review the project capability
+          matrix before performing destructive operations.
+          EOF
+
+          if gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Rufus Linux 0.1.0" \
+              --notes-file /tmp/release-notes.md \
+              --prerelease
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Rufus Linux 0.1.0" \
+              --notes-file /tmp/release-notes.md \
+              --prerelease
+          fi
