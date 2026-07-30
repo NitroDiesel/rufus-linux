@@ -38,6 +38,7 @@ jobs:
         run: cargo fetch --locked
       - name: Build Debian installer
         run: |
+          ln -s packaging/debian debian
           dpkg-buildpackage --build=binary --no-sign
           mkdir -p dist
           find .. -maxdepth 1 -type f -name 'rufus-linux_*.deb' \
