@@ -1,7 +1,7 @@
 //! Narrow, versioned protocol between the unprivileged desktop and root helper.
 //!
 //! The helper must never accept shell fragments, relative paths, or environment-
-//! controlled tool names. Messages are length-prefixed JSON on a Unix socket or pipe.
+//! controlled tool names. Messages are bounded newline-delimited JSON on a pipe.
 
 use std::path::PathBuf;
 
@@ -15,6 +15,11 @@ use thiserror::Error;
 
 /// Bump on any incompatible wire change.
 pub const PROTOCOL_VERSION: u32 = 1;
+
+/// Hard ceiling for one request or event. Protocol messages are normally only
+/// a few kilobytes; the bound prevents an untrusted peer from growing memory
+/// without limit before JSON validation.
+pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
 /// Default abstract/socket path under the root-owned runtime directory.
 pub const DEFAULT_SOCKET_NAME: &str = "rufus-linux-helper.sock";
@@ -171,11 +176,21 @@ pub enum ProtocolError {
 pub fn encode_line<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtocolError> {
     let mut bytes = serde_json::to_vec(value).map_err(|e| ProtocolError::Codec(e.to_string()))?;
     bytes.push(b'\n');
+    if bytes.len() > MAX_MESSAGE_BYTES {
+        return Err(ProtocolError::Codec(
+            "message exceeds protocol size limit".into(),
+        ));
+    }
     Ok(bytes)
 }
 
 /// Decode a single newline-terminated JSON object.
 pub fn decode_line<T: for<'de> Deserialize<'de>>(line: &[u8]) -> Result<T, ProtocolError> {
+    if line.len() > MAX_MESSAGE_BYTES {
+        return Err(ProtocolError::Codec(
+            "message exceeds protocol size limit".into(),
+        ));
+    }
     let trimmed = line.strip_suffix(b"\n").unwrap_or(line);
     let trimmed = trimmed.strip_suffix(b"\r").unwrap_or(trimmed);
     serde_json::from_slice(trimmed).map_err(|e| ProtocolError::Codec(e.to_string()))
@@ -278,5 +293,12 @@ mod tests {
             req.validate(),
             Err(ProtocolError::VersionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_oversized_messages_before_json_decode() {
+        let oversized = vec![b' '; MAX_MESSAGE_BYTES + 1];
+        let error = decode_line::<HelperRequest>(&oversized).expect_err("oversized input");
+        assert!(error.to_string().contains("size limit"));
     }
 }

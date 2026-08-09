@@ -19,7 +19,7 @@ Use `cargo build --release` for packaging. Do not run the complete GUI with `sud
 
 ## Runtime capability providers
 
-The package may make a minimal writer install small and use weak/optional dependencies for advanced features. Detect providers at runtime and show a direct remedy.
+Distribution installers include the filesystem formatters below so the complete format menu works immediately. Archive decoders remain optional. Provider detection still fails closed and shows a direct remedy if a tool is removed.
 
 | Feature | Executables/libraries | Debian/Ubuntu | Fedora | Arch |
 |---|---|---|---|---|
@@ -27,7 +27,7 @@ The package may make a minimal writer install small and use weak/optional depend
 | FAT/FAT32 | `mkfs.fat` | `dosfstools` | `dosfstools` | `dosfstools` |
 | exFAT | `mkfs.exfat` | `exfatprogs` | `exfatprogs` | `exfatprogs` |
 | ext2/3/4 | `mke2fs` | `e2fsprogs` | `e2fsprogs` | `e2fsprogs` |
-| NTFS | `mkntfs` | `ntfs-3g` | `ntfs-3g` | `ntfs-3g` |
+| NTFS | `mkfs.ntfs` / `mkntfs` | `ntfs-3g` | `ntfsprogs` | `ntfsprogs` |
 | UDF | `mkudffs` | `udftools` | `udftools` | `udftools` |
 | Archive formats | libarchive, xz, bzip2, zstd | `libarchive-tools xz-utils bzip2 zstd` | `libarchive xz bzip2 zstd` | `libarchive xz bzip2 zstd` |
 

@@ -1,6 +1,7 @@
 //! Unprivileged client for the short-lived, polkit-authorized helper.
 
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,16 +27,41 @@ pub struct RunningHelper {
 impl RunningHelper {
     pub fn cancel(&self) -> Result<(), String> {
         self.cancelled.store(true, Ordering::Release);
-        let mut guard = self
+        let guard = self
             .child
             .lock()
             .map_err(|_| "helper process lock was poisoned".to_owned())?;
-        if let Some(child) = guard.as_mut() {
-            child
-                .kill()
-                .map_err(|error| format!("could not stop helper: {error}"))?;
+        if let Some(child) = guard.as_ref() {
+            request_termination(child)
+                .map_err(|error| format!("could not request helper cancellation: {error}"))?;
         }
         Ok(())
+    }
+}
+
+fn request_termination(child: &Child) -> std::io::Result<()> {
+    let pid = libc::pid_t::try_from(child.id())
+        .map_err(|_| std::io::Error::other("helper pid was outside the platform range"))?;
+    if unsafe { libc::kill(-pid, libc::SIGTERM) } == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
+
+fn isolate_process_group(command: &mut Command) {
+    // SAFETY: setpgid is async-signal-safe and no allocations occur after fork.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setpgid(0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
     }
 }
 
@@ -56,12 +82,15 @@ pub fn launch(
         ));
     }
 
-    let mut child = Command::new(PKEXEC)
+    let mut command = Command::new(PKEXEC);
+    command
         .arg(INSTALLED_HELPER)
         .arg("--execute-json")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    isolate_process_group(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|error| format!("could not request authorization: {error}"))?;
 
@@ -148,4 +177,22 @@ pub fn launch(
         child: shared_child,
         cancelled,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_requests_sigterm_instead_of_forcing_sigkill() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30");
+        isolate_process_group(&mut command);
+        let mut child = command.spawn().expect("spawn sleep fixture");
+        request_termination(&child).expect("send SIGTERM");
+        let status = child.wait().expect("reap sleep fixture");
+        assert_eq!(status.signal(), Some(libc::SIGTERM));
+    }
 }

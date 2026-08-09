@@ -23,6 +23,7 @@ rufus-image = { path = "../../crates/rufus-image" }
 slint = { version = "=1.9.2", default-features = false, features = ["backend-winit", "renderer-femtovg", "std", "accessibility", "compat-1-2"] }
 ashpd = "=0.9.3"
 pollster = "=0.3.0"
+libc = "0.2"
 
 [build-dependencies]
 slint-build = "=1.9.2"

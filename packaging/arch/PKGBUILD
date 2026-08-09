@@ -1,18 +1,15 @@
 # Maintainer: Rufus Linux contributors
 pkgname=rufus-linux
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Format and create bootable USB drives (Linux port inspired by Rufus)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/NitroDiesel/rufus-linux"
 license=('GPL-3.0-or-later')
-depends=('polkit' 'util-linux' 'parted' 'dosfstools' 'fontconfig' 'freetype2'
-         'libxkbcommon' 'wayland' 'libx11' 'libxcb')
+depends=('polkit' 'util-linux' 'parted' 'dosfstools' 'exfatprogs' 'ntfsprogs'
+         'e2fsprogs' 'udftools' 'fontconfig' 'freetype2' 'libxkbcommon'
+         'wayland' 'libx11' 'libxcb')
 optdepends=(
-  'exfatprogs: exFAT formatting'
-  'ntfs-3g: NTFS formatting'
-  'e2fsprogs: ext2/3/4 formatting'
-  'udftools: UDF formatting'
   'gzip: gzip and Unix compress image support'
   'bzip2: bzip2 image support'
   'xz: xz/lzma image support'

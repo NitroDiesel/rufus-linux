@@ -6,7 +6,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 
 | Capability | Linux implementation | Notes |
 |---|---|---|
-| Removable-device discovery | Linux sysfs and `/proc/self/mountinfo` | Manual refresh; root, boot, home, read-only, held and unstable targets are rejected. USB HDDs and fixed disks are explicit expert opt-ins. |
+| Removable-device discovery | Linux sysfs and `/proc/self/mountinfo` | Automatic hotplug refresh plus a manual fallback; root, boot, home, read-only, held and unstable targets are rejected. USB HDDs and fixed disks are explicit expert opt-ins. |
 | Authorized destructive operations | Short-lived `/usr/libexec/rufus-linux-helper` through `pkexec` | The desktop never links or executes privileged disk code. Target identity is independently resolved after authorization. |
 | Raw image write | Bounded streaming copy to an exclusively locked target | Supports `.img`, `.raw`, and other raw disk images. Source size, target identity and target capacity are rechecked. |
 | ISOHybrid disk-image write | Same raw writer | Hybrid ISO media is written byte-for-byte. Non-hybrid ISO file-copy mode is blocked. |
@@ -17,7 +17,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | FAT/FAT32, exFAT, NTFS, UDF, ext2/3/4 | Distribution formatter tools | Only installed providers appear. Supported cluster/block sizes are passed to the formatter. |
 | Bad-block overwrite test | `badblocks -w` | Separate destructive confirmation; requires e2fsprogs. |
 | MD5, SHA-1, SHA-256, SHA-512 | RustCrypto | Runs off the UI thread. MD5/SHA-1 are comparison hashes, never trust decisions. |
-| Light and dark presentation | Device Workbench Slint UI | Scrollable at small window sizes, with device identity and a 16-cell write track kept prominent. |
+| Light and dark presentation | Device Workbench Slint UI | Scrollable at small window sizes, with prominent device identity and a continuous Windows-style write-progress track. |
 | Arch, Debian and Fedora integration | PKGBUILD, complete Debian metadata, RPM spec, desktop/AppStream/polkit metadata | Release URLs and checksums are finalized by release automation. |
 
 ## Recognized but blocked
@@ -43,7 +43,6 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 - Optical disc or mounted media to ISO through read-only providers.
 - Signed in-app download catalog with explicit image selection.
 - Package-manager-aware update policy.
-- Hotplug monitoring through udev/UDisks2.
 - Full gettext/Fluent catalogs and RTL layouts.
 - Settings persistence, log export, image drag-and-drop, and CLI preselection.
 - VHD/VHDX capture after safe file-descriptor passing is available.

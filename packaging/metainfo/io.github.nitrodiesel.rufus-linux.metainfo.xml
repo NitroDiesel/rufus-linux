@@ -23,6 +23,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.1" date="2026-08-09">
+      <description>
+        <p>Improves UI alignment and modal behavior, adds live USB detection,
+        and strengthens privileged target and source validation.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-07-29"/>
   </releases>
 </component>

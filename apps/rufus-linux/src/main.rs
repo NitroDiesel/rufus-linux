@@ -1,6 +1,7 @@
 //! Rufus Linux desktop — presentation only; destructive I/O stays in the helper.
 
 mod helper_client;
+mod hotplug;
 mod state;
 
 use std::cell::RefCell;
@@ -11,8 +12,11 @@ use std::time::Duration;
 use ashpd::desktop::file_chooser::{FileFilter, SelectedFiles};
 use ashpd::desktop::ResponseError;
 use helper_client::{RunningHelper, WorkerMessage};
+use hotplug::BlockDeviceWatcher;
 use rufus_helper_protocol::{HelperEvent, HelperResult};
-use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use slint::{
+    CloseRequestResponse, ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel,
+};
 
 use state::{AppState, BootSelection, DeviceListLabel};
 
@@ -28,6 +32,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_helper = Rc::new(RefCell::new(None::<RunningHelper>));
     let (helper_sender, helper_receiver) = mpsc::channel::<WorkerMessage>();
     let (checksum_sender, checksum_receiver) = mpsc::channel::<Result<String, String>>();
+    let (device_change_sender, device_change_receiver) = mpsc::sync_channel::<()>(1);
+    let _device_watcher = match BlockDeviceWatcher::spawn(device_change_sender) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            state
+                .borrow_mut()
+                .push_log(format!("Automatic device detection unavailable: {error}"));
+            None
+        }
+    };
 
     // Initial static lists
     ui.set_boot_choices(string_model(&[
@@ -141,6 +155,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    let device_change_timer = Timer::default();
+    {
+        let ui_weak = ui.as_weak();
+        let state = Rc::clone(&state);
+        let mut refresh_pending = false;
+        device_change_timer.start(TimerMode::Repeated, Duration::from_millis(150), move || {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            while device_change_receiver.try_recv().is_ok() {
+                refresh_pending = true;
+            }
+            let mut st = state.borrow_mut();
+            // Keep the exact device shown in a destructive confirmation stable;
+            // the queued refresh runs as soon as the dialog or operation ends.
+            if refresh_pending && !st.is_busy && !ui.get_show_confirm() {
+                refresh_devices_ui(&ui, &mut st);
+                refresh_pending = false;
+            }
+        });
+    }
+
     // —— Callbacks ——
     {
         let ui_weak = ui.as_weak();
@@ -162,8 +198,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .iter()
                     .position(|d| d.list_label() == label.as_str())
                 {
+                    let had_placeholder = st.selected_device.is_none();
                     st.select_device(idx);
-                    ui.set_selected_device(idx as i32);
+                    ui.set_selected_device(
+                        i32::try_from(idx).unwrap_or(i32::MAX) + i32::from(had_placeholder),
+                    );
                 }
                 apply_state_to_ui(&ui, &st);
             }
@@ -439,6 +478,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    {
+        let ui_weak = ui.as_weak();
+        let state = Rc::clone(&state);
+        ui.window().on_close_requested(move || {
+            let mut st = state.borrow_mut();
+            if st.is_busy {
+                st.status_line =
+                    "A device operation is active. Cancel it safely before closing Rufus Linux."
+                        .into();
+                if let Some(ui) = ui_weak.upgrade() {
+                    apply_state_to_ui(&ui, &st);
+                }
+                CloseRequestResponse::KeepWindowShown
+            } else {
+                CloseRequestResponse::HideWindow
+            }
+        });
+    }
 
     ui.run()?;
     Ok(())
@@ -508,7 +565,7 @@ fn refresh_devices_ui(ui: &AppWindow, state: &mut AppState) {
     state.list_usb_hdd = ui.get_list_usb_hdd();
     state.list_fixed_disks = ui.get_list_fixed_disks();
     state.refresh_devices();
-    let labels: Vec<SharedString> = state
+    let mut labels: Vec<SharedString> = state
         .devices
         .iter()
         .map(|d| SharedString::from(d.list_label()))
@@ -519,8 +576,16 @@ fn refresh_devices_ui(ui: &AppWindow, state: &mut AppState) {
         )])));
         ui.set_selected_device(0);
     } else {
+        if state.selected_device.is_none() {
+            labels.insert(0, SharedString::from("Select a device"));
+        }
         ui.set_device_labels(ModelRc::new(VecModel::from(labels)));
-        ui.set_selected_device(state.selected_device as i32);
+        ui.set_selected_device(
+            state
+                .selected_device
+                .and_then(|index| i32::try_from(index).ok())
+                .unwrap_or(0),
+        );
     }
     apply_state_to_ui(ui, state);
 }

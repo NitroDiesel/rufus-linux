@@ -3275,7 +3275,7 @@ checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rufus-boot"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rufus-core",
  "thiserror 2.0.19",
@@ -3283,14 +3283,14 @@ dependencies = [
 
 [[package]]
 name = "rufus-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rufus-downloads"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3300,7 +3300,7 @@ dependencies = [
 
 [[package]]
 name = "rufus-helper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fs2",
  "libc",
@@ -3313,7 +3313,7 @@ dependencies = [
 
 [[package]]
 name = "rufus-helper-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rufus-core",
  "serde",
@@ -3323,11 +3323,11 @@ dependencies = [
 
 [[package]]
 name = "rufus-i18n"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "rufus-image"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "md-5",
  "rufus-core",
@@ -3338,9 +3338,10 @@ dependencies = [
 
 [[package]]
 name = "rufus-linux"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ashpd",
+ "libc",
  "pollster",
  "rufus-core",
  "rufus-helper-protocol",
@@ -3352,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "rufus-linux-platform"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rufus-core",
 ]
