@@ -160,7 +160,7 @@ jobs:
                 "cd $workdir && makepkg --cleanbuild --noconfirm"
               package="$(
                 find "$workdir" -maxdepth 1 -type f \
-                  -name "rufus-linux-*.pkg.tar.zst" -print -quit
+                  -name "rufus-linux-[0-9]*-x86_64.pkg.tar.zst" -print -quit
               )"
               test -n "$package"
               bsdtar -tf "$package" | grep -Fx usr/bin/rufus-linux
