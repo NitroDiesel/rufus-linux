@@ -47,7 +47,7 @@ impl BootSelection {
 
 pub struct AppState {
     pub devices: Vec<BlockDevice>,
-    pub selected_device: usize,
+    pub selected_device: Option<usize>,
     pub boot_selection: BootSelection,
     pub image_path: Option<PathBuf>,
     pub image_report: Option<ImageReport>,
@@ -85,7 +85,7 @@ impl AppState {
         let capabilities = probe_capabilities();
         let mut s = Self {
             devices: Vec::new(),
-            selected_device: 0,
+            selected_device: None,
             boot_selection: BootSelection::DiskOrIso,
             image_path: None,
             image_report: None,
@@ -130,17 +130,19 @@ impl AppState {
     }
 
     pub fn selected(&self) -> Option<&BlockDevice> {
-        self.devices.get(self.selected_device)
+        self.selected_device
+            .and_then(|index| self.devices.get(index))
     }
 
     pub fn select_device(&mut self, idx: usize) {
         if idx < self.devices.len() {
-            self.selected_device = idx;
+            self.selected_device = Some(idx);
         }
         self.recompute();
     }
 
     pub fn refresh_devices(&mut self) {
+        let selected_fingerprint = self.selected().map(|device| device.fingerprint.clone());
         let show_fixed = self.list_fixed_disks || self.list_usb_hdd;
         match list_block_devices(show_fixed) {
             Ok(mut devices) => {
@@ -166,14 +168,18 @@ impl AppState {
                 if self.list_usb_hdd {
                     // already handled
                 }
+                self.selected_device = match selected_fingerprint.as_ref() {
+                    Some(fingerprint) => devices
+                        .iter()
+                        .position(|device| device.fingerprint.matches(fingerprint)),
+                    None => (!devices.is_empty()).then_some(0),
+                };
                 self.devices = devices;
-                if self.selected_device >= self.devices.len() {
-                    self.selected_device = 0;
-                }
                 self.push_log(format!("Found {} candidate device(s).", self.devices.len()));
             }
             Err(e) => {
                 self.devices.clear();
+                self.selected_device = None;
                 self.push_log(format!("Device scan failed: {e}"));
             }
         }
@@ -231,21 +237,16 @@ impl AppState {
             (Capability::FormatExt4, "ext4"),
             (Capability::FormatRefs, "ReFS"),
         ];
-        let mut out = Vec::new();
-        for (cap, label) in candidates {
-            if self.capabilities.supports(cap) || label == "ReFS" {
-                // Keep ReFS visible but disabled via hint when selected.
+        candidates
+            .into_iter()
+            .map(|(cap, label)| {
                 if self.capabilities.supports(cap) {
-                    out.push(label.to_owned());
-                } else if label == "ReFS" {
-                    out.push("ReFS (unavailable)".to_owned());
+                    label.to_owned()
+                } else {
+                    format!("{label} (unavailable)")
                 }
-            }
-        }
-        if out.is_empty() {
-            out.push("FAT32".into());
-        }
-        out
+            })
+            .collect()
     }
 
     fn filesystem_available(&self, label: &str) -> bool {
@@ -302,7 +303,8 @@ impl AppState {
     }
 
     fn operation_unavailable_reason(&self) -> Option<String> {
-        let filesystem_capability = match self.filesystem_label.as_str() {
+        let filesystem_name = self.filesystem_label.replace(" (unavailable)", "");
+        let filesystem_capability = match filesystem_name.as_str() {
             "FAT" => Capability::FormatFat,
             "FAT32" => Capability::FormatFat32,
             "exFAT" => Capability::FormatExfat,
@@ -316,9 +318,11 @@ impl AppState {
         if self.boot_selection == BootSelection::NonBootable
             && !self.capabilities.supports(filesystem_capability)
         {
+            if filesystem_name == "ReFS" {
+                return Some("ReFS creation is unavailable on Linux.".into());
+            }
             return Some(format!(
-                "The formatter for {} is not installed.",
-                self.filesystem_label
+                "Install the formatter provider for {filesystem_name} to enable this option."
             ));
         }
         if self.check_bad_blocks && !self.capabilities.supports(Capability::BadBlocksCheck) {
@@ -740,7 +744,7 @@ mod tests {
     fn format_only_plan_without_image() {
         let mut st = AppState::new();
         st.devices = vec![sample_device()];
-        st.selected_device = 0;
+        st.selected_device = Some(0);
         st.boot_selection = BootSelection::NonBootable;
         st.filesystem_label = "FAT32".into();
         st.recompute();
@@ -754,7 +758,7 @@ mod tests {
         let mut dev = sample_device();
         dev.risks.push(DeviceRisk::ContainsRoot);
         st.devices = vec![dev];
-        st.selected_device = 0;
+        st.selected_device = Some(0);
         st.boot_selection = BootSelection::NonBootable;
         st.recompute();
         assert!(st.build_confirm().is_err());

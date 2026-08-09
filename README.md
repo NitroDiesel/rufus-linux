@@ -8,14 +8,14 @@ Rufus Linux is an **independent, community-built Linux port inspired by Rufus**.
 
 ## Project status
 
-Version 0.1 is a Linux-native technology preview, not a drop-in rebuild of the Windows executable. Its production path is deliberately narrow: safe formatting plus raw, compressed-raw, and ISOHybrid writing with verification. Inputs that would need an incomplete bootloader or Windows deployment workflow are recognized and blocked with a direct reason. See the [capability matrix](docs/CAPABILITIES.md).
+Version 0.1 is the initial stable release of the Linux-native implementation, not a drop-in rebuild of the Windows executable. Its production path is deliberately narrow: safe formatting plus raw, compressed-raw, and ISOHybrid writing with verification. Inputs that would need an incomplete bootloader or Windows deployment workflow are recognized and blocked with a direct reason. See the [capability matrix](docs/CAPABILITIES.md).
 
 The goal is output compatibility where Linux has a safe, maintained implementation. It is not to emulate Windows internals with unsafe shortcuts.
 
 ## Current product direction
 
 - Native Slint desktop interface on Wayland and X11, with light and dark themes.
-- Sysfs-backed device discovery with mount and device-holder safety checks.
+- Automatic sysfs-backed device discovery with mount and device-holder safety checks.
 - A small, polkit-authorized privileged helper for raw-device operations.
 - MBR/GPT partitioning, raw image writing, verification, and common Linux/portable filesystems.
 - ISO/ISOHybrid and compressed-image analysis with clear compatibility and safety feedback.
@@ -70,19 +70,19 @@ Install the matching native package:
 
 ```sh
 # Debian or Ubuntu
-sudo apt install ./rufus-linux_0.1.0-1_amd64.deb
+sudo apt install ./rufus-linux_*_amd64.deb
 
 # Fedora
-sudo dnf install ./rufus-linux-0.1.0-1.fc42.x86_64.rpm
+sudo dnf install ./rufus-linux-*.x86_64.rpm
 
 # Arch Linux
-sudo pacman -U ./rufus-linux-0.1.0-1-x86_64.pkg.tar.zst
+sudo pacman -U ./rufus-linux-*-x86_64.pkg.tar.zst
 ```
 
 The native packages install the desktop application, privileged helper,
-polkit policy, desktop metadata, and required runtime dependencies. Release
-0.1.0 is a technology preview; review the [capability matrix](docs/CAPABILITIES.md)
-before writing to removable media.
+polkit policy, desktop metadata, and required runtime dependencies. Each
+release is stable within its documented capability set; review the
+[capability matrix](docs/CAPABILITIES.md) before writing to removable media.
 
 ## Install layout
 

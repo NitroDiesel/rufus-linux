@@ -1,5 +1,5 @@
 Name:           rufus-linux
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        Format and create bootable USB drives
 License:        GPL-3.0-or-later
@@ -9,8 +9,8 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  cargo rust pkgconf fontconfig-devel freetype-devel
 BuildRequires:  libxkbcommon-devel wayland-devel libX11-devel libxcb-devel
 BuildRequires:  systemd-rpm-macros
-Requires:       polkit util-linux parted dosfstools
-Recommends:     exfatprogs ntfs-3g e2fsprogs udftools libarchive xz bzip2 zstd
+Requires:       polkit util-linux parted dosfstools exfatprogs ntfsprogs e2fsprogs udftools
+Recommends:     libarchive xz bzip2 zstd
 
 %description
 Independent Linux port inspired by Rufus. Writes and formats removable
@@ -48,5 +48,8 @@ install -Dm0644 assets/icons/rufus-linux-64.png \
 %{_datadir}/icons/hicolor/64x64/apps/io.github.nitrodiesel.rufus-linux.png
 
 %changelog
+* Sun Aug 09 2026 Rufus Linux contributors - 0.1.1-1
+- Stable UI alignment, live USB detection, and privileged I/O hardening
+
 * Wed Jul 29 2026 Rufus Linux contributors - 0.1.0-1
 - Initial technology-preview package

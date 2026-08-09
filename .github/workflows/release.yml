@@ -18,15 +18,15 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_VERSION: 0.1.0
+  PACKAGE_VERSION: 0.1.1
 
 jobs:
   debian:
     name: Debian package
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@bc540ba06a4ccee415bb241490e0b25ee8e7d315
       - name: Install packaging dependencies
         run: |
           sudo apt-get update
@@ -55,7 +55,7 @@ jobs:
           dpkg-deb --fsys-tarfile "$package" |
             tar -tf - |
             grep -Fx './usr/bin/rufus-linux'
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: installer-debian
           path: dist/*.deb
@@ -65,7 +65,7 @@ jobs:
     name: Fedora package
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build and validate Fedora installer
         run: |
           mkdir -p dist
@@ -107,7 +107,7 @@ jobs:
               rpm -qpl "$package" | grep -Fx /usr/libexec/rufus-linux-helper
               cp "$package" /src/dist/
             '
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: installer-fedora
           path: dist/*.rpm
@@ -117,7 +117,7 @@ jobs:
     name: Arch package
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Prepare source archive
         run: |
           mkdir -p dist
@@ -140,7 +140,8 @@ jobs:
             archlinux:base-devel \
             bash -euxo pipefail -c '
               pacman -Syu --noconfirm \
-                rust cargo polkit util-linux parted dosfstools \
+                rust cargo polkit util-linux parted dosfstools exfatprogs \
+                ntfsprogs e2fsprogs udftools \
                 fontconfig freetype2 libxkbcommon wayland libx11 libxcb
               useradd --create-home builder
               workdir=/home/builder/package
@@ -148,14 +149,18 @@ jobs:
               install -o builder -g builder packaging/arch/PKGBUILD "$workdir/"
               install -o builder -g builder \
                 "dist/rufus-linux-${PACKAGE_VERSION}.tar.gz" "$workdir/"
+              source_sha="$(sha256sum "dist/rufus-linux-${PACKAGE_VERSION}.tar.gz" | cut -d " " -f 1)"
               sed -i \
                 "s|^source=.*|source=(\"rufus-linux-\$pkgver.tar.gz\")|" \
+                "$workdir/PKGBUILD"
+              sed -i \
+                "s|^sha256sums=.*|sha256sums=(\"$source_sha\")|" \
                 "$workdir/PKGBUILD"
               su builder -c \
                 "cd $workdir && makepkg --cleanbuild --noconfirm"
               package="$(
                 find "$workdir" -maxdepth 1 -type f \
-                  -name "rufus-linux-*.pkg.tar.zst" -print -quit
+                  -name "rufus-linux-[0-9]*-x86_64.pkg.tar.zst" -print -quit
               )"
               test -n "$package"
               bsdtar -tf "$package" | grep -Fx usr/bin/rufus-linux
@@ -164,7 +169,7 @@ jobs:
               cp "$package" /src/dist/
             '
           rm "dist/rufus-linux-${PACKAGE_VERSION}.tar.gz"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: installer-arch
           path: dist/*.pkg.tar.zst
@@ -178,7 +183,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: installer-*
           path: dist
@@ -192,14 +197,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version="${GITHUB_REF_NAME#v}"
           cat > /tmp/release-notes.md <<'EOF'
-          Rufus Linux 0.1.0 is the initial stable Linux-native release.
+          Rufus Linux is a stable Linux-native release within its documented
+          capability set.
+
+          Highlights: automatic USB hot-plug detection, aligned and
+          keyboard-accessible controls, a continuous Windows-style progress
+          bar, true modal overlays, and stronger privileged source/target
+          validation with cooperative cancellation.
 
           Download the package for your x86_64 distribution:
 
-          - Debian/Ubuntu: `sudo apt install ./rufus-linux_0.1.0-1_amd64.deb`
-          - Fedora: `sudo dnf install ./rufus-linux-0.1.0-1.fc42.x86_64.rpm`
-          - Arch Linux: `sudo pacman -U ./rufus-linux-0.1.0-1-x86_64.pkg.tar.zst`
+          - Debian/Ubuntu: `sudo apt install ./rufus-linux_*_amd64.deb`
+          - Fedora: `sudo dnf install ./rufus-linux-*.x86_64.rpm`
+          - Arch Linux: `sudo pacman -U ./rufus-linux-*-x86_64.pkg.tar.zst`
 
           Verify the download first with `sha256sum -c SHA256SUMS`.
 
@@ -214,7 +226,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Rufus Linux 0.1.0" \
+              --title "Rufus Linux $version" \
               --notes-file /tmp/release-notes.md \
               --prerelease=false \
               --latest
@@ -222,7 +234,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" dist/* \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
-              --title "Rufus Linux 0.1.0" \
+              --title "Rufus Linux $version" \
               --notes-file /tmp/release-notes.md \
               --latest
           fi

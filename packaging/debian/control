@@ -11,9 +11,8 @@ Homepage: https://github.com/NitroDiesel/rufus-linux
 Package: rufus-linux
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, polkitd, pkexec,
- util-linux, parted, dosfstools
-Recommends: exfatprogs, ntfs-3g, e2fsprogs, udftools, libarchive-tools,
- xz-utils, bzip2, zstd
+ util-linux, parted, dosfstools, exfatprogs, ntfs-3g, e2fsprogs, udftools
+Recommends: libarchive-tools, xz-utils, bzip2, zstd
 Description: Format and create bootable USB drives
  Independent Linux port inspired by Rufus. Writes and formats removable
  media through a polkit-authorized helper.

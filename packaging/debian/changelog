@@ -1,3 +1,9 @@
+rufus-linux (0.1.1-1) unstable; urgency=medium
+
+  * Stable UI alignment, live USB detection, and privileged I/O hardening.
+
+ -- Rufus Linux contributors <rufus-linux@users.noreply.github.com>  Sun, 09 Aug 2026 00:00:00 +0800
+
 rufus-linux (0.1.0-1) unstable; urgency=medium
 
   * Initial Linux-native technology preview.

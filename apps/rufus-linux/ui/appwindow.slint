@@ -20,7 +20,6 @@ export component AppWindow inherits Window {
     changed dark-mode => {
         Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
     }
-
     // —— Bound state from Rust ——
     in-out property <bool> dark-mode <=> Theme.dark-mode;
     in-out property <[string]> device-labels;
@@ -74,7 +73,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-about: false;
     in-out property <bool> show-advanced: false;
     in-out property <string> capability-hint: "";
-    in-out property <string> app-version: "0.1.0";
+    in-out property <string> app-version: "0.1.1";
 
     // —— Callbacks ——
     callback refresh-devices();
@@ -98,36 +97,24 @@ export component AppWindow inherits Window {
     callback option-changed();
     callback close-clicked();
 
-    VerticalLayout {
-        padding: Theme.space-4;
-        spacing: Theme.space-3;
+    HorizontalLayout {
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            max-width: 760px;
+            padding: Theme.space-4;
+            spacing: Theme.space-3;
 
         // Header
         HorizontalLayout {
+            height: Theme.icon-button-size;
+            vertical-stretch: 0;
             spacing: Theme.space-3;
-            alignment: center;
-            VerticalLayout {
-                spacing: 2px;
-                Text {
-                    text: "Rufus Linux";
-                    color: Theme.text;
-                    font-family: Theme.display-font;
-                    font-size: 22px;
-                    font-weight: 700;
-                }
-                Text {
-                    text: "Device Workbench";
-                    color: Theme.muted;
-                    font-family: Theme.body-font;
-                    font-size: 12px;
-                }
-            }
             Rectangle { horizontal-stretch: 1; }
-            ToolButton { glyph: root.dark-mode ? "☀" : "☾"; label: "Switch theme"; clicked => { root.toggle-theme(); } }
-            ToolButton { glyph: "#"; label: "Checksums"; enabled: root.image-path != ""; clicked => { root.compute-checksums(); } }
-            ToolButton { glyph: "☰"; label: "Log"; selected: root.show-log; clicked => { root.toggle-log(); } }
-            ToolButton { glyph: "⚙"; label: "Advanced"; selected: root.show-advanced; clicked => { root.toggle-advanced(); } }
-            ToolButton { glyph: "ⓘ"; label: "About"; selected: root.show-about; clicked => { root.toggle-about(); } }
+            ToolButton { icon: root.dark-mode ? @image-url("../../../assets/icons/toolbar/theme-sun.svg") : @image-url("../../../assets/icons/toolbar/theme.svg"); label: "Switch theme"; clicked => { root.toggle-theme(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/checksum.svg"); label: "Checksums"; enabled: root.image-path != ""; clicked => { root.compute-checksums(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/log.svg"); label: "Log"; selected: root.show-log; clicked => { root.toggle-log(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/settings.svg"); label: "Advanced"; selected: root.show-advanced; clicked => { root.toggle-advanced(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/about.svg"); label: "About"; selected: root.show-about; clicked => { root.toggle-about(); } }
         }
 
         ScrollView {
@@ -159,12 +146,17 @@ export component AppWindow inherits Window {
                             root.device-selected(v);
                         }
                     }
-                    WorkbenchButton {
-                        text: "↻";
-                        compact: true;
-                        enabled: !root.is-busy;
-                        accessible-name: "Refresh devices";
-                        clicked => { root.refresh-devices(); }
+                    VerticalLayout {
+                        vertical-stretch: 1;
+                        Rectangle { vertical-stretch: 1; }
+                        WorkbenchButton {
+                            text: "";
+                            icon: @image-url("../../../assets/icons/toolbar/refresh.svg");
+                            compact: true;
+                            enabled: !root.is-busy;
+                            accessible-name: "Refresh devices";
+                            clicked => { root.refresh-devices(); }
+                        }
                     }
                 }
                 TargetPlate {
@@ -357,6 +349,8 @@ export component AppWindow inherits Window {
                 padding: Theme.space-4;
                 spacing: Theme.space-3;
                 HorizontalLayout {
+                    height: 40px;
+                    vertical-stretch: 0;
                     alignment: center;
                     SectionHeader { title: "Status"; horizontal-stretch: 1; }
                     StatusBadge {
@@ -411,14 +405,20 @@ export component AppWindow inherits Window {
                 clicked => { root.start-clicked(); }
             }
         }
+        }
+        Rectangle { horizontal-stretch: 1; }
     }
 
     // Confirm overlay
     if root.show-confirm: Rectangle {
         background: Theme.scrim;
-        TouchArea { /* block clicks through */ }
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+        }
         Rectangle {
             width: min(420px, parent.width - 48px);
+            height: min(340px, parent.height - 48px);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             border-radius: Theme.section-radius;
@@ -435,24 +435,36 @@ export component AppWindow inherits Window {
                     font-size: 18px;
                     font-weight: 700;
                 }
-                Text {
-                    text: root.confirm-body;
-                    color: Theme.text;
-                    font-family: Theme.body-font;
-                    font-size: 13px;
-                    wrap: word-wrap;
+                Rectangle {
+                    vertical-stretch: 1;
+                    ScrollView {
+                        viewport-height: confirm-copy.preferred-height;
+                        confirm-copy := Text {
+                            width: parent.width - Theme.space-2;
+                            text: root.confirm-body;
+                            color: Theme.text;
+                            font-family: Theme.body-font;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                        }
+                    }
                 }
                 HorizontalLayout {
                     spacing: Theme.space-3;
                     Rectangle { horizontal-stretch: 1; }
-                    WorkbenchButton {
+                    confirm-cancel := WorkbenchButton {
                         text: "Cancel";
+                        initial-focus: true;
+                        handles-escape: true;
                         clicked => { root.confirm-rejected(); }
+                        escape-pressed => { root.confirm-rejected(); }
                     }
                     WorkbenchButton {
                         text: "Destroy data";
                         danger: true;
+                        handles-escape: true;
                         clicked => { root.confirm-accepted(); }
+                        escape-pressed => { root.confirm-rejected(); }
                     }
                 }
             }
@@ -462,6 +474,10 @@ export component AppWindow inherits Window {
     // Log overlay
     if root.show-log: Rectangle {
         background: Theme.scrim;
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+        }
         Rectangle {
             width: min(500px, parent.width - 32px);
             height: min(420px, parent.height - 32px);
@@ -484,10 +500,12 @@ export component AppWindow inherits Window {
                         vertical-alignment: center;
                     }
                     Rectangle { horizontal-stretch: 1; }
-                    WorkbenchButton {
+                    log-close := WorkbenchButton {
                         text: "Close";
-                        compact: true;
+                        initial-focus: true;
+                        handles-escape: true;
                         clicked => { root.toggle-log(); }
+                        escape-pressed => { root.toggle-log(); }
                     }
                 }
                 Rectangle {
@@ -516,8 +534,13 @@ export component AppWindow inherits Window {
     // About overlay
     if root.show-about: Rectangle {
         background: Theme.scrim;
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+        }
         Rectangle {
             width: min(400px, parent.width - 48px);
+            height: min(320px, parent.height - 48px);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             border-radius: Theme.section-radius;
@@ -556,10 +579,13 @@ export component AppWindow inherits Window {
                 }
                 HorizontalLayout {
                     Rectangle { horizontal-stretch: 1; }
-                    WorkbenchButton {
+                    about-close := WorkbenchButton {
                         text: "Close";
                         primary: true;
+                        initial-focus: true;
+                        handles-escape: true;
                         clicked => { root.toggle-about(); }
+                        escape-pressed => { root.toggle-about(); }
                     }
                 }
             }

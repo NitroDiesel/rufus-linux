@@ -28,6 +28,8 @@ export component SectionHeader inherits HorizontalLayout {
     alignment: center;
 
     Text {
+        height: 24px;
+        vertical-stretch: 0;
         text: root.title;
         color: Theme.text;
         font-family: Theme.display-font;
@@ -45,18 +47,24 @@ export component SectionHeader inherits HorizontalLayout {
 
 export component WorkbenchButton inherits Rectangle {
     in property <string> text;
+    in property <image> icon;
     in property <bool> primary: false;
     in property <bool> danger: false;
     in property <bool> enabled: true;
     in property <bool> compact: false;
+    in property <bool> initial-focus: false;
+    in property <bool> handles-escape: false;
     in property <string> accessible-name: text;
     callback clicked;
+    callback escape-pressed;
 
     height: Theme.control-height;
     min-width: compact ? 36px : 96px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
     border-radius: Theme.control-radius;
-    border-width: primary ? 0px : Theme.border-width;
-    border-color: danger ? Theme.danger : (touch.has-hover ? Theme.muted : Theme.border);
+    border-width: button-focus.has-focus ? 2px : (primary ? 0px : Theme.border-width);
+    border-color: button-focus.has-focus ? Theme.focus : (danger ? Theme.danger : (touch.has-hover ? Theme.muted : Theme.border));
     background: !enabled ? Theme.track
         : danger ? (touch.pressed ? Theme.danger : (touch.has-hover ? Theme.danger-soft : Theme.surface-raised))
         : primary ? (touch.pressed ? Theme.accent-strong : Theme.accent)
@@ -65,8 +73,26 @@ export component WorkbenchButton inherits Rectangle {
     accessible-role: button;
     accessible-label: accessible-name;
     accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    forward-focus: button-focus;
+    init => {
+        if root.initial-focus { button-focus.focus(); }
+    }
 
-    Text {
+    if root.icon.width > 0 && root.icon.height > 0: Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 18px;
+        height: 18px;
+        source: root.icon;
+        colorize: root.danger ? Theme.danger : (root.primary ? Theme.accent-ink : Theme.text);
+    }
+
+    if root.icon.width == 0 || root.icon.height == 0: Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
         text: root.text;
         color: root.danger ? Theme.danger : (root.primary ? Theme.accent-ink : Theme.text);
         font-family: Theme.body-font;
@@ -80,10 +106,26 @@ export component WorkbenchButton inherits Rectangle {
         enabled: root.enabled;
         clicked => { root.clicked(); }
     }
+
+    button-focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if root.handles-escape && event.text == Key.Escape {
+                root.escape-pressed();
+                return accept;
+            }
+            if event.text == " " || event.text == "\n" {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
 }
 
 export component ToolButton inherits Rectangle {
-    in property <string> glyph;
+    in property <image> icon;
     in property <string> label;
     in property <bool> selected: false;
     in property <bool> enabled: true;
@@ -91,27 +133,43 @@ export component ToolButton inherits Rectangle {
 
     width: Theme.icon-button-size;
     height: Theme.icon-button-size;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
     border-radius: Theme.control-radius;
     background: selected ? Theme.selection-soft : (touch.has-hover ? Theme.surface-raised : transparent);
-    border-width: selected ? Theme.border-width : 0px;
-    border-color: selected ? Theme.selection : transparent;
+    border-width: tool-focus.has-focus ? 2px : (selected ? Theme.border-width : 0px);
+    border-color: tool-focus.has-focus ? Theme.focus : (selected ? Theme.selection : transparent);
     opacity: enabled ? 1 : 0.42;
     accessible-role: button;
     accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    forward-focus: tool-focus;
 
-    Text {
-        text: root.glyph;
-        color: root.selected ? Theme.selection : Theme.muted;
-        font-family: Theme.body-font;
-        font-size: 17px;
-        font-weight: 600;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 18px;
+        height: 18px;
+        source: root.icon;
+        colorize: root.selected ? Theme.selection : Theme.muted;
     }
 
     touch := TouchArea {
         enabled: root.enabled;
         clicked => { root.clicked(); }
+    }
+
+    tool-focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
     }
 }
 
@@ -126,6 +184,10 @@ export component StatusBadge inherits Rectangle {
     background: tone == "warning" ? Theme.warning-soft : (tone == "danger" ? Theme.danger-soft : (tone == "success" ? Theme.accent-soft : Theme.surface-raised));
 
     badge-text := Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
         text: root.text;
         color: root.tone == "warning" ? Theme.warning : (root.tone == "danger" ? Theme.danger : (root.tone == "success" ? Theme.accent : Theme.muted));
         font-family: Theme.body-font;
@@ -133,62 +195,6 @@ export component StatusBadge inherits Rectangle {
         font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;
-    }
-}
-
-export component DisclosureHeader inherits Rectangle {
-    in property <string> text;
-    in property <string> summary: "";
-    in-out property <bool> open: false;
-    callback toggled(bool);
-
-    height: summary == "" ? 36px : 44px;
-    border-radius: Theme.control-radius;
-    background: touch.has-hover ? Theme.accent-soft : transparent;
-    accessible-role: button;
-    accessible-label: text;
-    accessible-description: summary;
-
-    HorizontalLayout {
-        padding-left: Theme.space-2;
-        padding-right: Theme.space-2;
-        spacing: Theme.space-2;
-        alignment: center;
-
-        Text {
-            width: 16px;
-            text: root.open ? "⌄" : "›";
-            color: Theme.muted;
-            font-family: Theme.body-font;
-            font-size: 18px;
-            vertical-alignment: center;
-        }
-
-        VerticalLayout {
-            alignment: center;
-            Text {
-                text: root.text;
-                color: Theme.text;
-                font-family: Theme.body-font;
-                font-size: 13px;
-                font-weight: 600;
-                vertical-alignment: center;
-            }
-            if root.summary != "": Text {
-                text: root.summary;
-                color: Theme.muted;
-                font-family: Theme.body-font;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
-        }
-    }
-
-    touch := TouchArea {
-        clicked => {
-            root.open = !root.open;
-            root.toggled(root.open);
-        }
     }
 }
 
@@ -320,17 +326,20 @@ export component WriteTrack inherits Rectangle {
             }
         }
 
-        HorizontalLayout {
-            height: 22px;
-            spacing: 3px;
-            for block[index] in 16: Rectangle {
-                horizontal-stretch: 1;
-                border-radius: 2px;
-                border-width: Theme.high-contrast ? 2px : 1px;
-                border-color: root.tone == "error" && ((index + 1) * 6.25 <= root.progress + 6.25) ? Theme.danger : Theme.border;
-                background: ((index + 1) * 6.25 <= root.progress)
-                    ? (root.tone == "error" ? Theme.danger : (root.tone == "warning" ? Theme.warning : Theme.accent))
-                    : Theme.track;
+        progress-trough := Rectangle {
+            height: 18px;
+            clip: true;
+            border-radius: 3px;
+            border-width: Theme.high-contrast ? 2px : 1px;
+            border-color: Theme.border;
+            background: Theme.track;
+
+            Rectangle {
+                width: max(0px, min(parent.width, parent.width * root.progress / 100));
+                height: parent.height;
+                background: root.tone == "error" ? Theme.danger
+                    : root.tone == "warning" ? Theme.warning
+                    : Theme.accent;
             }
         }
     }

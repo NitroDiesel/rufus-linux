@@ -275,18 +275,18 @@ pub fn parse_mountinfo(path: &Path) -> Result<Vec<MountRecord>, PlatformError> {
     let mut records = Vec::new();
     for line in input.lines() {
         let Some((before, after)) = line.split_once(" - ") else {
-            continue;
+            return Err(invalid_mountinfo(path, line));
         };
         let left = before.split_whitespace().collect::<Vec<_>>();
         let right = after.split_whitespace().collect::<Vec<_>>();
-        if left.len() < 5 || right.len() < 2 {
-            continue;
+        if left.len() < 6 || right.len() < 3 {
+            return Err(invalid_mountinfo(path, line));
         }
         let Some((major, minor)) = left[2].split_once(':') else {
-            continue;
+            return Err(invalid_mountinfo(path, line));
         };
         let (Ok(major), Ok(minor)) = (major.parse(), minor.parse()) else {
-            continue;
+            return Err(invalid_mountinfo(path, line));
         };
         records.push(MountRecord {
             major,
@@ -296,7 +296,20 @@ pub fn parse_mountinfo(path: &Path) -> Result<Vec<MountRecord>, PlatformError> {
             source: unescape_mount_field(right[1]),
         });
     }
+    if records.is_empty() {
+        return Err(PlatformError::InvalidKernelData {
+            path: path.to_owned(),
+            value: "mountinfo contained no mount records".into(),
+        });
+    }
     Ok(records)
+}
+
+fn invalid_mountinfo(path: &Path, line: &str) -> PlatformError {
+    PlatformError::InvalidKernelData {
+        path: path.to_owned(),
+        value: line.to_owned(),
+    }
 }
 
 fn unescape_mount_field(value: &str) -> String {
@@ -428,7 +441,7 @@ pub fn probe_capabilities() -> CapabilityReport {
             "/sbin/mkfs.ntfs",
             "/usr/bin/mkfs.ntfs",
         ],
-        "ntfs-3g",
+        "ntfsprogs (Arch/Fedora) or ntfs-3g (Debian)",
     );
     set_tool(
         &mut report,
@@ -748,6 +761,42 @@ mod tests {
         assert_eq!(records[0].minor, 17);
         assert_eq!(records[0].mount_point, PathBuf::from("/media/My USB"));
         assert_eq!(records[0].filesystem, "vfat");
+    }
+
+    #[test]
+    fn malformed_mountinfo_fails_closed() {
+        let path = std::env::temp_dir().join(format!(
+            "rufus-malformed-mountinfo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock after Unix epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&path, "malformed mount record\n").expect("write mountinfo fixture");
+        let result = parse_mountinfo(&path);
+        let _ = std::fs::remove_file(path);
+        assert!(matches!(
+            result,
+            Err(PlatformError::InvalidKernelData { .. })
+        ));
+    }
+
+    #[test]
+    fn empty_mountinfo_fails_closed() {
+        let path = std::env::temp_dir().join(format!(
+            "rufus-empty-mountinfo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock after Unix epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&path, "").expect("write mountinfo fixture");
+        let result = parse_mountinfo(&path);
+        let _ = std::fs::remove_file(path);
+        assert!(matches!(
+            result,
+            Err(PlatformError::InvalidKernelData { .. })
+        ));
     }
 
     #[test]

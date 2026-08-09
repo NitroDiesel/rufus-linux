@@ -12,8 +12,8 @@ jobs:
   quality:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@bc540ba06a4ccee415bb241490e0b25ee8e7d315
         with:
           components: rustfmt, clippy
       - name: System dependencies
@@ -57,7 +57,7 @@ jobs:
             script: scripts/ci/arch.sh
     name: ${{ matrix.distro }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build in distribution container
         run: >-
           docker run --rm

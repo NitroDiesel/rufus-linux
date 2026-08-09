@@ -8,7 +8,7 @@ The Slint application owns presentation, localization, device summaries, image a
 
 ### Device service
 
-The 0.1 device service reads `/sys/class/block`, `/sys/dev/block`, mountinfo, swap state and sysfs holder relationships. It records device ancestry rather than comparing only Linux major numbers. UDisks2/udev hotplug monitoring remains planned; the current UI refreshes explicitly.
+The 0.1 device service reads `/sys/class/block`, `/sys/dev/block`, mountinfo, swap state and sysfs holder relationships. It records device ancestry rather than comparing only Linux major numbers. A lightweight watcher detects block-topology changes and coalesces automatic refreshes; manual refresh remains available.
 
 ### Image engine
 
