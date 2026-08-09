@@ -193,7 +193,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md <<'EOF'
-          Rufus Linux 0.1.0 is the initial Linux-native technology preview.
+          Rufus Linux 0.1.0 is the initial stable Linux-native release.
 
           Download the package for your x86_64 distribution:
 
@@ -203,7 +203,7 @@ jobs:
 
           Verify the download first with `sha256sum -c SHA256SUMS`.
 
-          This preview supports safe formatting and raw, compressed-raw, and
+          This release supports safe formatting and raw, compressed-raw, and
           ISOHybrid writing with verification. Review the project capability
           matrix before performing destructive operations.
           EOF
@@ -216,12 +216,13 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --title "Rufus Linux 0.1.0" \
               --notes-file /tmp/release-notes.md \
-              --prerelease
+              --prerelease=false \
+              --latest
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "Rufus Linux 0.1.0" \
               --notes-file /tmp/release-notes.md \
-              --prerelease
+              --latest
           fi
