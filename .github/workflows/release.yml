@@ -184,7 +184,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            appstream binutils desktop-file-utils file libxml2-utils xvfb zsync
+            appstream binutils desktop-file-utils file libxkbcommon-x11-0 \
+            libxml2-utils xvfb zsync
       - name: Build against glibc 2.28
         run: |
           mkdir -p dist
