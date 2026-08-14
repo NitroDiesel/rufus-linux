@@ -6,6 +6,14 @@ This file is a packaging checklist, not a substitute for the license texts shipp
 
 Portions derived from the Rufus source tree are licensed under **GPL-3.0-or-later**. Preserve upstream copyright headers, the GPL text, modification notices, and complete corresponding source. The upstream project name and logo may also be subject to trademark rules separate from the GPL.
 
+The application icons under `assets/icons/rufus-linux-*.png` are unmodified,
+independently sized copies of upstream Rufus `res/icons/rufus-*.png`, anchored
+to upstream content commit `2d63a109200a6921d803f824e8d4fee08ff9bd78`.
+Upstream's asset-specific notice places `rufus*.*` in the **Public Domain**,
+courtesy of PC Unleashed. See `assets/icons/LICENSE.txt`. This independent
+port's non-endorsement notice remains prominent in the README, AppStream
+description, and application About text.
+
 ## Expected system dependencies
 
 These tools and libraries are intended to remain system dependencies rather than copied into this repository:

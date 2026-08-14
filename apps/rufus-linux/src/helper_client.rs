@@ -1,6 +1,8 @@
 //! Unprivileged client for the short-lived, polkit-authorized helper.
 
+use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -10,7 +12,26 @@ use std::sync::{mpsc::Sender, Arc, Mutex};
 use rufus_helper_protocol::{decode_line, encode_line, HelperEvent, HelperRequest};
 
 const PKEXEC: &str = "/usr/bin/pkexec";
+const PKACTION: &str = "/usr/bin/pkaction";
 const INSTALLED_HELPER: &str = "/usr/libexec/rufus-linux-helper";
+const INSTALLED_POLICY: &str =
+    "/usr/share/polkit-1/actions/io.github.nitrodiesel.rufus-linux.policy";
+const ACTION_ID: &str = "io.github.nitrodiesel.rufus-linux.helper";
+const MAX_POLICY_BYTES: u64 = 64 * 1024;
+const APPIMAGE_ENVIRONMENT: [&str; 12] = [
+    "APPDIR",
+    "APPIMAGE",
+    "ARGV0",
+    "GCONV_PATH",
+    "GI_TYPELIB_PATH",
+    "GTK_PATH",
+    "LD_AUDIT",
+    "LD_DEBUG",
+    "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "OWD",
+    "PYTHONPATH",
+];
 
 #[derive(Debug)]
 pub enum WorkerMessage {
@@ -66,21 +87,105 @@ fn isolate_process_group(command: &mut Command) {
 }
 
 pub fn helper_available() -> bool {
-    Path::new(PKEXEC).is_file() && Path::new(INSTALLED_HELPER).is_file()
+    helper_readiness().is_ok()
+}
+
+fn trusted_system_file(path: &str, executable: bool) -> Result<fs::Metadata, String> {
+    let metadata = fs::metadata(path).map_err(|error| format!("{path} is unavailable: {error}"))?;
+    if !metadata.is_file() {
+        return Err(format!("{path} is not a regular file"));
+    }
+    if metadata.uid() != 0 || metadata.permissions().mode() & 0o022 != 0 {
+        return Err(format!(
+            "{path} must be owned by root and not writable by group or other users"
+        ));
+    }
+    if executable && metadata.permissions().mode() & 0o111 == 0 {
+        return Err(format!("{path} is not executable"));
+    }
+    Ok(metadata)
+}
+
+fn helper_readiness() -> Result<(), String> {
+    if !Path::new(PKEXEC).is_file() || !Path::new(PKACTION).is_file() {
+        return Err(
+            "polkit is not installed; install pkexec and pkaction for authorized disk writes"
+                .into(),
+        );
+    }
+    trusted_system_file(INSTALLED_HELPER, true)?;
+    let policy_metadata = trusted_system_file(INSTALLED_POLICY, false)?;
+    if policy_metadata.len() > MAX_POLICY_BYTES {
+        return Err(format!("{INSTALLED_POLICY} is unexpectedly large"));
+    }
+    let policy = fs::read_to_string(INSTALLED_POLICY)
+        .map_err(|error| format!("could not read {INSTALLED_POLICY}: {error}"))?;
+    if !policy_authorizes_helper(&policy) {
+        return Err("the installed polkit policy does not authorize the packaged helper".into());
+    }
+    Ok(())
+}
+
+fn policy_authorizes_helper(policy: &str) -> bool {
+    policy.contains(&format!("<action id=\"{ACTION_ID}\">"))
+        && policy.contains(&format!(
+            "<annotate key=\"org.freedesktop.policykit.exec.path\">{INSTALLED_HELPER}</annotate>"
+        ))
+}
+
+fn sanitize_appimage_environment(command: &mut Command) {
+    for variable in APPIMAGE_ENVIRONMENT {
+        command.env_remove(variable);
+    }
+}
+
+fn installed_helper_is_compatible() -> Result<(), String> {
+    let mut command = Command::new(INSTALLED_HELPER);
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    sanitize_appimage_environment(&mut command);
+    let output = command
+        .output()
+        .map_err(|error| format!("could not query the privileged helper version: {error}"))?;
+    let expected = format!("rufus-linux-helper {}", env!("CARGO_PKG_VERSION"));
+    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != expected {
+        return Err(format!(
+            "the installed privileged helper is incompatible; reinstall Rufus Linux {}",
+            env!("CARGO_PKG_VERSION")
+        ));
+    }
+    Ok(())
+}
+
+fn registered_action_authorizes_helper() -> Result<(), String> {
+    let mut command = Command::new(PKACTION);
+    command
+        .args(["--verbose", "--action-id", ACTION_ID])
+        .env("LC_ALL", "C");
+    sanitize_appimage_environment(&mut command);
+    let output = command
+        .output()
+        .map_err(|error| format!("could not inspect the installed polkit action: {error}"))?;
+    if !output.status.success() {
+        return Err("the Rufus Linux polkit action is not registered".into());
+    }
+    let details = String::from_utf8_lossy(&output.stdout);
+    let expected = format!("org.freedesktop.policykit.exec.path -> {INSTALLED_HELPER}");
+    if !details.contains(&expected) {
+        return Err("the registered polkit action does not target the packaged helper".into());
+    }
+    Ok(())
 }
 
 pub fn launch(
     request: &HelperRequest,
     sender: Sender<WorkerMessage>,
 ) -> Result<RunningHelper, String> {
-    if !Path::new(PKEXEC).is_file() {
-        return Err("pkexec is not installed; install polkit for authorized disk writes".into());
-    }
-    if !Path::new(INSTALLED_HELPER).is_file() {
-        return Err(format!(
-            "privileged helper is not installed at {INSTALLED_HELPER}; install the Rufus Linux package"
-        ));
-    }
+    helper_readiness()?;
+    installed_helper_is_compatible()?;
+    registered_action_authorizes_helper()?;
 
     let mut command = Command::new(PKEXEC);
     command
@@ -89,6 +194,7 @@ pub fn launch(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    sanitize_appimage_environment(&mut command);
     isolate_process_group(&mut command);
     let mut child = command
         .spawn()
@@ -194,5 +300,19 @@ mod tests {
         request_termination(&child).expect("send SIGTERM");
         let status = child.wait().expect("reap sleep fixture");
         assert_eq!(status.signal(), Some(libc::SIGTERM));
+    }
+
+    #[test]
+    fn policy_must_name_the_action_and_exact_helper_path() {
+        let valid = format!(
+            "<action id=\"{ACTION_ID}\"><annotate key=\"org.freedesktop.policykit.exec.path\">{INSTALLED_HELPER}</annotate></action>"
+        );
+        assert!(policy_authorizes_helper(&valid));
+        assert!(!policy_authorizes_helper(
+            &valid.replace(INSTALLED_HELPER, "/tmp/helper")
+        ));
+        assert!(!policy_authorizes_helper(
+            &valid.replace(ACTION_ID, "org.example.other")
+        ));
     }
 }

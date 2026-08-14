@@ -27,6 +27,15 @@ mod generated_ui {
 use generated_ui::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args_os().len() == 2
+        && std::env::args_os()
+            .nth(1)
+            .is_some_and(|argument| argument == "--version" || argument == "-V")
+    {
+        println!("rufus-linux {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     let ui = AppWindow::new()?;
     let state = Rc::new(RefCell::new(AppState::new()));
     let running_helper = Rc::new(RefCell::new(None::<RunningHelper>));

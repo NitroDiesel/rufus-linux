@@ -79,10 +79,26 @@ sudo dnf install ./rufus-linux-*.x86_64.rpm
 sudo pacman -U ./rufus-linux-*-x86_64.pkg.tar.zst
 ```
 
+Or run the portable desktop build on an x86_64 glibc 2.28+ system:
+
+```sh
+chmod +x ./rufus-linux-*-x86_64.AppImage
+./rufus-linux-*-x86_64.AppImage
+```
+
+If FUSE is unavailable, launch it with `--appimage-extract-and-run`. The
+AppImage supports device discovery, image inspection, option selection,
+checksums, and logs without installation. It deliberately contains no
+privileged code; writing and formatting become available when a matching
+native package has installed the root-owned helper and polkit policy.
+
 The native packages install the desktop application, privileged helper,
 polkit policy, desktop metadata, and required runtime dependencies. Each
 release is stable within its documented capability set; review the
 [capability matrix](docs/CAPABILITIES.md) before writing to removable media.
+
+`SHA256SUMS` detects download corruption. GitHub build provenance attached to
+the release provides a separate publisher-verification path.
 
 ## Install layout
 

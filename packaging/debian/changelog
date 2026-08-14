@@ -1,3 +1,10 @@
+rufus-linux (0.1.2-1) unstable; urgency=medium
+
+  * Add a verified portable AppImage desktop artifact.
+  * Harden helper and polkit readiness checks.
+
+ -- Rufus Linux contributors <rufus-linux@users.noreply.github.com>  Sat, 15 Aug 2026 00:00:00 +0800
+
 rufus-linux (0.1.1-1) unstable; urgency=medium
 
   * Stable UI alignment, live USB detection, and privileged I/O hardening.

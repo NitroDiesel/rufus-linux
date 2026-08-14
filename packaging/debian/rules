@@ -22,5 +22,7 @@ override_dh_auto_install:
 		debian/rufus-linux/usr/share/polkit-1/actions/io.github.nitrodiesel.rufus-linux.policy
 	install -Dm0644 packaging/tmpfiles/rufus-linux.conf \
 		debian/rufus-linux/usr/lib/tmpfiles.d/rufus-linux.conf
-	install -Dm0644 assets/icons/rufus-linux-64.png \
-		debian/rufus-linux/usr/share/icons/hicolor/64x64/apps/io.github.nitrodiesel.rufus-linux.png
+	set -e; for size in 16 24 32 48 64 128 256 512; do \
+		install -Dm0644 assets/icons/rufus-linux-$$size.png \
+		debian/rufus-linux/usr/share/icons/hicolor/$${size}x$${size}/apps/io.github.nitrodiesel.rufus-linux.png; \
+	done

@@ -1,0 +1,8 @@
+Rufus application icons (`rufus-linux-*.png`)
+
+Public Domain, courtesy of PC Unleashed
+http://pcunleashed.com
+
+These files are unmodified copies of upstream Rufus `res/icons/rufus-*.png`.
+Upstream licensing notice:
+https://github.com/pbatard/rufus/blob/master/res/icons/license.txt

@@ -79,3 +79,9 @@ Logs include the operation plan, stable device identity, tools/versions, stage t
 ## Polkit policy
 
 The packaged policy in `packaging/polkit/` authorizes a single helper entry point. Authorization is expected for each destructive operation (`auth_admin`), is never granted to inactive sessions, and is not replaced by permissive udev rules such as `MODE="0666"`.
+
+The AppImage never supplies the executable that polkit authorizes. Portable
+user-owned bytes remain unprivileged; destructive actions require the same
+root-owned `/usr/libexec/rufus-linux-helper` and exact-path policy installed by
+a native package. The desktop checks file ownership, write permissions, policy
+content, and the effective registered action before launching `pkexec`.

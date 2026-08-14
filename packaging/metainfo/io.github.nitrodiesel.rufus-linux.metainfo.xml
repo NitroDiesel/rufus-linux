@@ -23,6 +23,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.2" date="2026-08-15">
+      <description>
+        <p>Adds a verified portable AppImage desktop build and strengthens
+        helper and polkit readiness checks.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-08-09">
       <description>
         <p>Improves UI alignment and modal behavior, adds live USB detection,

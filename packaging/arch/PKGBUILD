@@ -1,6 +1,6 @@
 # Maintainer: Rufus Linux contributors
 pkgname=rufus-linux
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Format and create bootable USB drives (Linux port inspired by Rufus)"
 arch=('x86_64' 'aarch64')
@@ -38,8 +38,13 @@ package() {
     "$pkgdir/usr/share/polkit-1/actions/io.github.nitrodiesel.rufus-linux.policy"
   install -Dm644 packaging/tmpfiles/rufus-linux.conf \
     "$pkgdir/usr/lib/tmpfiles.d/rufus-linux.conf"
-  install -Dm644 assets/icons/rufus-linux-64.png \
-    "$pkgdir/usr/share/icons/hicolor/64x64/apps/io.github.nitrodiesel.rufus-linux.png"
+  local size
+  for size in 16 24 32 48 64 128 256 512; do
+    install -Dm644 "assets/icons/rufus-linux-$size.png" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/io.github.nitrodiesel.rufus-linux.png"
+  done
   install -Dm644 LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
+  install -Dm644 assets/icons/LICENSE.txt \
+    "$pkgdir/usr/share/licenses/$pkgname/ICON-LICENSE.txt"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }
