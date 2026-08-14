@@ -18,7 +18,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_VERSION: 0.1.1
+  PACKAGE_VERSION: 0.1.2
 
 jobs:
   debian:
@@ -175,13 +175,113 @@ jobs:
           path: dist/*.pkg.tar.zst
           if-no-files-found: error
 
+  appimage:
+    name: Portable AppImage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install AppImage validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            appstream binutils desktop-file-utils file libxkbcommon-x11-0 \
+            libxml2-utils xvfb zsync
+      - name: Build against glibc 2.28
+        run: |
+          mkdir -p dist
+          image='quay.io/rockylinux/rockylinux@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6'
+          docker pull "$image"
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            -e CARGO_HOME=/tmp/cargo \
+            -e CARGO_TARGET_DIR=/tmp/rufus-target \
+            -e RUSTUP_HOME=/tmp/rustup \
+            "$image" \
+            bash -euxo pipefail -c '
+              dnf install -y \
+                ca-certificates curl gcc gcc-c++ pkgconf-pkg-config \
+                fontconfig-devel freetype-devel libxkbcommon-devel \
+                wayland-devel libX11-devel libxcb-devel
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs |
+                sh -s -- -y --profile minimal --default-toolchain 1.85.0
+              export PATH=/tmp/cargo/bin:$PATH
+              cargo build --release --locked -p rufus-linux
+              install -m0755 /tmp/rufus-target/release/rufus-linux \
+                /src/dist/rufus-linux-appimage-bin
+            '
+      - name: Stage and package AppImage
+        env:
+          APPIMAGETOOL_SHA256: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
+          RUNTIME_SHA256: 1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf
+        run: |
+          appdir="$RUNNER_TEMP/RufusLinux.AppDir"
+          packaging/appimage/stage-appdir.sh \
+            dist/rufus-linux-appimage-bin "$appdir"
+
+          curl -fL --retry 3 \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o "$RUNNER_TEMP/appimagetool"
+          curl -fL --retry 3 \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            -o "$RUNNER_TEMP/runtime-x86_64"
+          printf '%s  %s\n' "$APPIMAGETOOL_SHA256" "$RUNNER_TEMP/appimagetool" |
+            sha256sum --check
+          printf '%s  %s\n' "$RUNTIME_SHA256" "$RUNNER_TEMP/runtime-x86_64" |
+            sha256sum --check
+          chmod 0755 "$RUNNER_TEMP/appimagetool"
+
+          output_name="rufus-linux-${PACKAGE_VERSION}-x86_64.AppImage"
+          (
+            cd dist
+            ARCH=x86_64 VERSION="$PACKAGE_VERSION" \
+              APPIMAGE_EXTRACT_AND_RUN=1 "$RUNNER_TEMP/appimagetool" \
+              --runtime-file "$RUNNER_TEMP/runtime-x86_64" \
+              --updateinformation \
+              'gh-releases-zsync|NitroDiesel|rufus-linux|latest|rufus-linux-*-x86_64.AppImage.zsync' \
+              "$appdir" "$output_name"
+          )
+          test -s "dist/$output_name.zsync"
+          rm dist/rufus-linux-appimage-bin
+      - name: Verify AppImage
+        run: |
+          appimage="dist/rufus-linux-${PACKAGE_VERSION}-x86_64.AppImage"
+          packaging/appimage/verify-appimage.sh \
+            "$appimage" "$PACKAGE_VERSION" 2.28
+
+          set +e
+          timeout 8s xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 \
+            "$appimage" >/tmp/rufus-appimage-gui.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 124 ]; then
+            cat /tmp/rufus-appimage-gui.log
+            exit "$status"
+          fi
+
+          for image in debian:11-slim fedora:42 archlinux:base; do
+            docker pull "$image"
+            docker run --rm -v "$PWD/dist:/artifacts:ro" "$image" \
+              "/artifacts/rufus-linux-${PACKAGE_VERSION}-x86_64.AppImage" \
+              --appimage-extract-and-run --version
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: installer-appimage
+          path: |
+            dist/*.AppImage
+            dist/*.AppImage.zsync
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [debian, fedora, arch]
+    needs: [debian, fedora, arch, appimage]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -193,6 +293,10 @@ jobs:
           cd dist
           sha256sum ./* | sort -k2 > SHA256SUMS
           sha256sum --check SHA256SUMS
+      - name: Attest release installers
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/*
       - name: Publish installers
         env:
           GH_TOKEN: ${{ github.token }}
@@ -200,7 +304,8 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           cat > /tmp/release-notes.md <<'EOF'
           Rufus Linux is a stable Linux-native release within its documented
-          capability set.
+          capability set. It is an independent port and is not produced,
+          endorsed, or supported by the upstream Rufus project.
 
           Highlights: automatic USB hot-plug detection, aligned and
           keyboard-accessible controls, a continuous Windows-style progress
@@ -212,6 +317,12 @@ jobs:
           - Debian/Ubuntu: `sudo apt install ./rufus-linux_*_amd64.deb`
           - Fedora: `sudo dnf install ./rufus-linux-*.x86_64.rpm`
           - Arch Linux: `sudo pacman -U ./rufus-linux-*-x86_64.pkg.tar.zst`
+          - Portable desktop: `chmod +x ./rufus-linux-*.AppImage && ./rufus-linux-*.AppImage`
+
+          The AppImage runs on x86_64 glibc 2.28+ desktops. If FUSE is not
+          available, add `--appimage-extract-and-run`. For security, the
+          portable artifact does not contain privileged code: writing and
+          formatting require the matching native package's root-owned helper.
 
           Verify the download first with `sha256sum -c SHA256SUMS`.
 

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+appdir=${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
+exec "$appdir/usr/bin/rufus-linux" "$@"

@@ -42,7 +42,7 @@ The `packaging/` directory contains integration metadata and starter recipes:
 - `polkit/` — authorization policy for the narrow helper;
 - `tmpfiles/` — volatile root-owned runtime directory;
 - `debian/`, `rpm/`, `arch/` — distribution recipes;
-- `appimage/` — AppImage notes and launcher skeleton.
+- `appimage/` — AppImage staging, verification, launcher, and security notes.
 
 Recipes intentionally do not download proprietary boot or Windows assets. Release builders must be reproducible, use Cargo's locked dependencies, generate a software bill of materials, and preserve license texts.
 
@@ -65,3 +65,19 @@ install -Dm0644 packaging/tmpfiles/rufus-linux.conf \
 ```
 
 If the helper is not built, omit the helper, polkit policy, and tmpfiles rule. The desktop application must then remain in read-only/demo mode rather than attempting raw access itself.
+
+## AppImage
+
+Build the AppImage GUI on the pinned Rocky Linux 8 baseline used by the release
+workflow, then stage and verify it with:
+
+```sh
+packaging/appimage/stage-appdir.sh target/release/rufus-linux RufusLinux.AppDir
+appimagetool --runtime-file runtime-x86_64 RufusLinux.AppDir rufus-linux.AppImage
+packaging/appimage/verify-appimage.sh rufus-linux.AppImage 0.1.2 2.28
+```
+
+The release workflow supplies SHA-verified appimagetool and type-2 runtime
+artifacts and embeds GitHub zsync update information. Do not stage the helper,
+polkit policy, setuid files, partitioning tools, formatters, glibc, or graphics
+drivers in the AppDir. The native package owns the privileged integration.

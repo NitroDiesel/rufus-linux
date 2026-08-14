@@ -2,6 +2,11 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: rufus-linux
 Source: https://github.com/NitroDiesel/rufus-linux
 
+Files: assets/icons/rufus-linux-*.png
+Copyright: Public Domain, courtesy of PC Unleashed
+License: public-domain
+ These application icons are in the public domain.
+
 Files: *
 Copyright: 2026 Rufus Linux contributors
 License: GPL-3+

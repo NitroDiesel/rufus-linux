@@ -1,13 +1,20 @@
-# AppImage notes
+# AppImage packaging
 
-AppImage packaging is optional. Prefer distro packages so polkit, partition
-tools, and formatters remain system-managed.
+The AppImage is a portable, unprivileged x86_64 desktop build for glibc-based
+Linux distributions. It is built against glibc 2.28 and can run without FUSE
+through AppImage's `--appimage-extract-and-run` fallback.
 
-If you ship an AppImage:
+The artifact deliberately contains no privileged helper, polkit policy,
+setuid file, partitioning tool, or filesystem formatter. Device discovery,
+image inspection, option selection, checksums, and logs work immediately.
+Writing and formatting remain disabled until the matching native Rufus Linux
+package installs the root-owned helper and exact-path polkit policy. This keeps
+user-controlled AppImage bytes outside the privileged execution boundary.
 
-1. Build `cargo build --release --locked`.
-2. Stage `rufus-linux` under `AppDir/usr/bin/`.
-3. Do **not** bundle the privileged helper as setuid; document that live writes
-   require a system-installed helper and polkit policy. The desktop remains
-   read-only when those system components are absent.
-4. Bundle only redistributable assets with licenses under `assets/licenses/`.
+`stage-appdir.sh` creates the AppDir from an old-glibc release binary.
+`verify-appimage.sh` extracts and audits the final artifact, including its
+contents, permissions, RPATH, glibc floor, metadata, and headless version path.
+The release workflow pins and verifies appimagetool and its type-2 runtime.
+
+Alpine/musl, NixOS/non-FHS, headless systems, non-x86_64 CPUs, and desktops
+without a compatible display stack are outside this artifact's support claim.
