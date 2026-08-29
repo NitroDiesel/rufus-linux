@@ -1,0 +1,45 @@
+name: Record official Codex contributor
+
+on:
+  push:
+    branches:
+      - "codex/official-contributor-record"
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    name: Create official Codex-authored contribution
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Commit contributor record as official Codex
+        run: |
+          cat > CONTRIBUTORS.md <<'EOF'
+          # Contributors
+
+          Rufus Linux is led by NitroDiesel and developed with contributors
+          recorded in the repository's Git history. GitHub Insights remains the
+          authoritative complete contributor list.
+
+          ## AI-assisted engineering
+
+          [OpenAI Codex](https://github.com/codex) materially contributed to the
+          Linux port's architecture, safety hardening, native UI, hot-plug
+          behavior, packaging, AppImage release path, verification, and agent
+          handoff documentation.
+
+          AI contribution credit reflects reviewed changes merged into the
+          project; it does not imply ownership of Rufus or affiliation with the
+          upstream Rufus maintainers.
+          EOF
+
+          rm .github/workflows/record-official-codex.yml
+          git config user.name "Codex"
+          git config user.email "267193182+codex@users.noreply.github.com"
+          git add CONTRIBUTORS.md .github/workflows/record-official-codex.yml
+          git commit -m "Record official Codex project contribution"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

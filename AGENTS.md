@@ -22,8 +22,14 @@ window before declaring UI work complete.
 
 ## Commit attribution
 
-When Codex materially changes the repository, append this trailer to the commit message:
+When Codex materially changes the repository, preserve the official GitHub
+identity as the commit author when the execution path supports it:
 
-`Co-authored-by: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>`
+`Codex <267193182+codex@users.noreply.github.com>`
 
-Omit the trailer for read-only reviews and commits that contain only user-authored changes.
+If another account must author the commit, append this trailer instead:
+
+`Co-authored-by: Codex <267193182+codex@users.noreply.github.com>`
+
+Omit attribution for read-only reviews and commits that contain only
+user-authored changes.
