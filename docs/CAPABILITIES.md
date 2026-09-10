@@ -28,7 +28,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | Ordinary/non-hybrid ISO file-copy media | Needs audited ISO extraction, mount lifecycle, bootloader installation and fixture/QEMU coverage. |
 | Windows installer media | Depends on ISO file-copy, split-WIM support, boot files and tested UEFI:NTFS handling. |
 | Windows To Go | A WIM/ESD cannot be raw-copied. A real implementation needs partition, wimlib apply, BCD and offline-registry work. |
-| VHD/VHDX input | Container bytes are never treated as raw sectors. A future flow will use bounded qemu-img conversion. |
+| VHD/VHDX input | Container bytes are never treated as raw sectors. A private QEMU/libnbd streaming backend is under test; source immutability and integration gates still block production requests. See [virtual disk work](VIRTUAL_DISKS.md). |
 | FFU apply/capture | No maintained, independently verifiable Linux servicing provider has been selected. |
 | ReFS creation | Linux has no safe production ReFS formatter. |
 | FreeDOS | Redistributable system files and exact boot-sector provenance are not packaged yet. |

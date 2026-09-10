@@ -33,6 +33,12 @@ Distribution installers include the filesystem formatters below so the complete 
 
 Package names can change; verify them against the distribution release being targeted. A missing provider disables only its feature and displays the package/executable needed.
 
+The in-development virtual disk integration test additionally needs `qemu-utils
+libnbd-bin` on Debian/Ubuntu or `qemu-img libnbd` on Fedora/Arch. CI installs these
+test providers explicitly. They are not yet native runtime dependencies and
+their presence does not enable VHD/VHDX conversion. See
+[`VIRTUAL_DISKS.md`](VIRTUAL_DISKS.md) for the remaining gates.
+
 ## Packaging metadata
 
 The `packaging/` directory contains integration metadata and starter recipes:

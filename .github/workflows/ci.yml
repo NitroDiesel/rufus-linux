@@ -21,11 +21,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype-dev \
             libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
-            desktop-file-utils appstream libxml2-utils parted dosfstools
+            desktop-file-utils appstream libxml2-utils parted dosfstools qemu-utils libnbd-bin
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test
         run: cargo test --workspace --locked
+      - name: Virtual disk provider integration
+        run: cargo test -p rufus-helper providers_roundtrip --locked -- --ignored
+      - name: Protected source integration (regular files only)
+        shell: bash
+        run: |
+          tested=0
+          for binary in target/debug/deps/rufus_helper-*; do
+            if [[ -f "$binary" && -x "$binary" ]]; then
+              sudo -- "$binary" --ignored
+              tested=$((tested + 1))
+            fi
+          done
+          test "$tested" -gt 0
       - name: Lint libraries
         run: cargo clippy --workspace --all-targets --exclude rufus-linux --locked -- -D warnings
       - name: Lint desktop

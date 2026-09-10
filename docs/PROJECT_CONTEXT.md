@@ -172,6 +172,12 @@ request. Regression tests cover renamed VHDs, unchanged raw-image recognition,
 and refusal to construct a write request. These changes do not implement VHD
 conversion and are not included in the existing 0.1.2 release assets.
 
+The `codex/vhd-streaming-backend` continuation adds a tested private conversion
+backend but keeps VHD/VHDX blocked at both production entry points. Read
+[`VIRTUAL_DISKS.md`](VIRTUAL_DISKS.md) before changing virtual disk handling;
+it records provider limits, the approved source-snapshot fallback, and the
+remaining source-protection, UI, packaging, and boot gates.
+
 These are known follow-ups, not claims that the current release is broken:
 
 - Run a packaged, real-polkit smoke test on disposable physical USB media for

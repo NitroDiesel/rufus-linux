@@ -27,6 +27,9 @@ use thiserror::Error;
 
 pub const HELPER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+mod source_snapshot;
+mod virtual_disk;
+
 #[derive(Debug, Error)]
 pub enum HelperError {
     #[error(transparent)]
@@ -457,6 +460,9 @@ pub fn validate_request(request: &HelperRequest) -> Result<(), HelperError> {
             if source.kind == rufus_core::plan::ImageSourceKind::CompressedRaw {
                 decompressor_for(&source.path)?;
             }
+            if virtual_disk::is_virtual(source.kind) {
+                virtual_disk::require_tools()?;
+            }
         }
         HelperOperation::FormatMedia { format, .. } => {
             tool_for_filesystem(format.filesystem)?;
@@ -667,7 +673,7 @@ fn progress(
 
 /// Execute (or dry-run) a validated helper request.
 pub fn execute(
-    request: HelperRequest,
+    mut request: HelperRequest,
     options: ExecutionOptions,
     mut sink: EventSink,
 ) -> Result<HelperResult, HelperError> {
@@ -688,6 +694,37 @@ pub fn execute(
         }
         _ => None,
     };
+    let mut virtual_snapshot = None;
+    if !options.dry_run {
+        if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
+            if virtual_disk::is_virtual(source.kind) {
+                let original = source_file.as_ref().ok_or_else(|| {
+                    HelperError::Operation("bound source descriptor missing".into())
+                })?;
+                let snapshot = source_snapshot::create(original, &options.cancel)?;
+                let user = invoking_user
+                    .as_ref()
+                    .ok_or_else(|| HelperError::Operation("invoking user missing".into()))?;
+                let size = virtual_disk::inspect(
+                    &snapshot,
+                    source.kind,
+                    user,
+                    &options.cancel,
+                    request.target.fingerprint.size_bytes,
+                )?;
+                if source
+                    .decompressed_size_bytes
+                    .is_some_and(|expected| expected != size)
+                {
+                    return Err(HelperError::Operation(
+                        "virtual disk size changed since selection".into(),
+                    ));
+                }
+                source.decompressed_size_bytes = Some(size);
+                virtual_snapshot = Some(snapshot);
+            }
+        }
+    }
     emit(
         &mut sink,
         HelperEvent::Accepted {
@@ -860,9 +897,12 @@ pub fn execute(
                 let target = exclusive.as_ref().ok_or_else(|| {
                     HelperError::Operation("exclusive target handle was not available".into())
                 })?;
-                let source_file = source_file.as_ref().ok_or_else(|| {
-                    HelperError::Operation("bound source descriptor was not available".into())
-                })?;
+                let source_file = virtual_snapshot
+                    .as_ref()
+                    .or(source_file.as_ref())
+                    .ok_or_else(|| {
+                        HelperError::Operation("bound source descriptor was not available".into())
+                    })?;
                 Some(write_image(
                     target,
                     WriteSource {
@@ -1376,6 +1416,22 @@ fn write_image(
             set_nonblocking(stdout.as_raw_fd())?;
             decoder_child = Some(child);
             Box::new(stdout)
+        } else if virtual_disk::is_virtual(source.spec.kind) {
+            if source.spec.decompressed_size_bytes.is_none() {
+                return Err(HelperError::Operation(
+                    "virtual disk size must be inspected before writing".into(),
+                ));
+            }
+            let user = source.invoking_user.ok_or_else(|| {
+                HelperError::Operation("virtual disk decoder requires an invoking user".into())
+            })?;
+            let mut child = virtual_disk::decoder(source.file, source.spec.kind, user)?;
+            let stdout = child.child_mut().stdout.take().ok_or_else(|| {
+                HelperError::Operation("virtual disk decoder stdout missing".into())
+            })?;
+            set_nonblocking(stdout.as_raw_fd())?;
+            decoder_child = Some(child);
+            Box::new(stdout)
         } else {
             Box::new(source_reader)
         };
@@ -1385,6 +1441,11 @@ fn write_image(
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1024 * 1024];
     let mut written = 0u64;
+    let write_limit = source
+        .spec
+        .decompressed_size_bytes
+        .unwrap_or(max_bytes)
+        .min(max_bytes);
     let started = Instant::now();
     let mut last_progress = Instant::now();
     loop {
@@ -1407,9 +1468,9 @@ fn write_image(
         written = written
             .checked_add(count as u64)
             .ok_or_else(|| HelperError::Operation("image size overflow".into()))?;
-        if written > max_bytes {
+        if written > write_limit {
             return Err(HelperError::Operation(
-                "decompressed image exceeds target capacity".into(),
+                "decoded image exceeds its declared size or target capacity".into(),
             ));
         }
         destination.write_all(&buffer[..count])?;
@@ -1445,6 +1506,7 @@ fn write_image(
         return Err(HelperError::Operation("source image was empty".into()));
     }
     if source.spec.kind != rufus_core::plan::ImageSourceKind::CompressedRaw
+        && !virtual_disk::is_virtual(source.spec.kind)
         && written != source.spec.size_bytes
     {
         return Err(HelperError::Operation(
@@ -1923,6 +1985,20 @@ mod tests {
             install_bootloader: None,
         };
         validate_request(&request).expect("validation must not open the source path");
+        if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
+            source.kind = ImageSourceKind::Vhd;
+        }
+        assert!(validate_request(&request)
+            .expect_err("VHD rollout gate")
+            .to_string()
+            .contains("cannot be safely raw-written"));
+        if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
+            source.kind = ImageSourceKind::Vhdx;
+        }
+        assert!(validate_request(&request)
+            .expect_err("VHDX rollout gate")
+            .to_string()
+            .contains("cannot be safely raw-written"));
     }
 
     #[test]
