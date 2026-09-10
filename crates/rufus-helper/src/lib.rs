@@ -26,6 +26,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const HELPER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const DECODER_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
 mod source_snapshot;
 mod virtual_disk;
@@ -646,6 +647,14 @@ impl ManagedChild {
         &mut self,
         cancel: &CancellationToken,
     ) -> Result<ExitStatus, HelperError> {
+        self.wait_with_deadline(cancel, None)
+    }
+
+    fn wait_with_deadline(
+        &mut self,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<ExitStatus, HelperError> {
         loop {
             if cancel.is_requested() {
                 self.terminate_and_reap()?;
@@ -653,6 +662,11 @@ impl ManagedChild {
             }
             if let Some(status) = self.try_wait()? {
                 return Ok(status);
+            }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(HelperError::Operation(
+                    "decoder did not exit before its deadline".into(),
+                ));
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -1479,21 +1493,12 @@ fn write_image(
             .min(max_bytes);
         let started = Instant::now();
         let mut last_progress = Instant::now();
-        loop {
-            if cancel.is_requested() {
-                return Err(HelperError::Cancelled);
-            }
-            let count = match reader.read(&mut buffer) {
-                Ok(count) => count,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(20));
-                    continue;
-                }
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error.into()),
-            };
+        let decoder_exit_deadline = loop {
+            // Downstream writes are outside the budget; EOF keeps the remaining time.
+            let deadline = Instant::now() + DECODER_IDLE_TIMEOUT;
+            let count = read_image_chunk(&mut reader, &mut buffer, cancel, deadline)?;
             if count == 0 {
-                break;
+                break deadline;
             }
             written = written
                 .checked_add(count as u64)
@@ -1525,7 +1530,7 @@ fn write_image(
                 );
                 last_progress = Instant::now();
             }
-        }
+        };
         if cancel.is_requested() {
             return Err(HelperError::Cancelled);
         }
@@ -1549,7 +1554,7 @@ fn write_image(
             }
         }
         if let Some(child) = decoder_child.as_mut() {
-            let status = child.wait_with_cancellation(cancel)?;
+            let status = child.wait_with_deadline(cancel, Some(decoder_exit_deadline))?;
             if !status.success() {
                 return Err(HelperError::Operation(
                     "decompressor reported invalid or truncated input".into(),
@@ -1576,6 +1581,32 @@ fn write_image(
         (Err(error), Err(cleanup_error)) => Err(HelperError::Operation(format!(
             "{error}; image-write cleanup failed: {cleanup_error}"
         ))),
+    }
+}
+
+fn read_image_chunk(
+    reader: &mut impl Read,
+    buffer: &mut [u8],
+    cancel: &CancellationToken,
+    deadline: Instant,
+) -> Result<usize, HelperError> {
+    loop {
+        check_cancel(cancel)?;
+        match reader.read(buffer) {
+            Ok(count) => return Ok(count),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(error.into()),
+        }
+        if Instant::now() >= deadline {
+            return Err(HelperError::Operation(
+                "image decoder timed out waiting for output".into(),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 
@@ -1935,6 +1966,124 @@ mod tests {
         assert!(child.exit_observed().is_err());
         assert!(child.reaped);
         child.terminate_and_reap().expect("disarmed cleanup");
+    }
+
+    #[test]
+    fn stalled_decoder_output_times_out_and_is_cleaned_up() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "printf x; exec sleep 30"])
+            .stdout(Stdio::piped());
+        let mut child = ManagedChild::spawn(&mut command, "stalled decoder fixture")
+            .expect("spawn stalled decoder");
+        let mut stdout = child.child_mut().stdout.take().expect("decoder stdout");
+        set_nonblocking(stdout.as_raw_fd()).expect("nonblocking decoder stdout");
+        let cancel = CancellationToken::new();
+        let mut buffer = [0u8; 1];
+        assert_eq!(
+            read_image_chunk(
+                &mut stdout,
+                &mut buffer,
+                &cancel,
+                Instant::now() + Duration::from_secs(3)
+            )
+            .expect("initial output"),
+            1
+        );
+        assert_eq!(buffer, [b'x']);
+        let started = Instant::now();
+        let error = read_image_chunk(
+            &mut stdout,
+            &mut buffer,
+            &cancel,
+            Instant::now() + Duration::from_millis(40),
+        )
+        .expect_err("stalled stdout deadline");
+        assert!(error.to_string().contains("timed out waiting for output"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let mut decoder = Some(child);
+        finish_image_write(&anonymous_fixture(b"x"), &mut decoder).expect("timeout cleanup");
+        assert!(decoder.as_ref().expect("managed decoder").reaped);
+        assert_eq!(stdout.read(&mut buffer).expect("closed decoder stdout"), 0);
+    }
+
+    #[test]
+    fn decoder_exit_after_eof_has_a_deadline() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "sleep 0.2; exec 1>&-; exec sleep 30"])
+            .stdout(Stdio::piped());
+        let mut child = ManagedChild::spawn(&mut command, "closed-output decoder fixture")
+            .expect("spawn closed-output decoder");
+        let mut stdout = child.child_mut().stdout.take().expect("decoder stdout");
+        set_nonblocking(stdout.as_raw_fd()).expect("nonblocking decoder stdout");
+        let cancel = CancellationToken::new();
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(400);
+        assert_eq!(
+            read_image_chunk(&mut stdout, &mut [0u8; 1], &cancel, deadline).expect("decoder EOF"),
+            0
+        );
+        let error = child
+            .wait_with_deadline(&cancel, Some(deadline))
+            .expect_err("stalled exit deadline");
+        assert!(error.to_string().contains("did not exit"));
+        assert!(
+            started.elapsed() < Duration::from_millis(600),
+            "EOF must not restart the budget"
+        );
+        let mut decoder = Some(child);
+        let target = File::options()
+            .write(true)
+            .open("/dev/null")
+            .expect("discard device");
+        assert!(
+            finish_image_write(&target, &mut decoder).is_err(),
+            "fsync must be attempted"
+        );
+        assert!(decoder.as_ref().expect("managed decoder").reaped);
+    }
+
+    #[test]
+    fn decoder_read_budget_resets_and_cancellation_remains_immediate() {
+        struct IntermittentReader(bool);
+        impl Read for IntermittentReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.0 = !self.0;
+                if self.0 {
+                    return Err(io::ErrorKind::WouldBlock.into());
+                }
+                buffer[0] = b'x';
+                Ok(1)
+            }
+        }
+        let mut reader = IntermittentReader(false);
+        let cancel = CancellationToken::new();
+        let timeout = Duration::from_millis(60);
+        for _ in 0..2 {
+            assert_eq!(
+                read_image_chunk(
+                    &mut reader,
+                    &mut [0u8; 1],
+                    &cancel,
+                    Instant::now() + timeout
+                )
+                .expect("available output after a short wait"),
+                1
+            );
+            std::thread::sleep(timeout * 2);
+        }
+        cancel.request();
+        assert!(matches!(
+            read_image_chunk(
+                &mut reader,
+                &mut [0u8; 1],
+                &cancel,
+                Instant::now() + timeout
+            ),
+            Err(HelperError::Cancelled)
+        ));
+        assert!(!reader.0, "cancelled read must not consume input");
     }
 
     #[test]

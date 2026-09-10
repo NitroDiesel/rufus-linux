@@ -175,9 +175,10 @@ conversion and are not included in the existing 0.1.2 release assets.
 The `codex/vhd-streaming-backend` continuation adds a tested private conversion
 backend but keeps VHD/VHDX blocked at both production entry points. Read
 [`VIRTUAL_DISKS.md`](VIRTUAL_DISKS.md) before changing virtual disk handling;
-it records provider limits, the approved source-snapshot fallback, shared
-write-error cleanup, and the remaining fault-injection, UI, packaging, and
-boot gates. Production VHD/VHDX entry points remain blocked.
+it records provider limits, the approved source-snapshot fallback and decoder
+inactivity deadline, shared write-error cleanup, and the remaining
+fault-injection, UI, packaging, and boot gates. Production VHD/VHDX entry points
+remain blocked.
 
 These are known follow-ups, not claims that the current release is broken:
 

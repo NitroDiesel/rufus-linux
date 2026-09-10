@@ -64,7 +64,7 @@ with `--exact source_snapshot::tests::protected_snapshot_is_stable_and_read_only
 --ignored`. It operates only on anonymous regular-file fixtures. CI runs this
 test explicitly, alongside root-launched provider tests that verify dropped UIDs.
 
-## Remaining gates and provider limits
+## Write cleanup and decoder deadlines
 
 Image writes now share one completion path that terminates the decoder and
 attempts destination synchronization on success, cancellation, and stream
@@ -81,9 +81,24 @@ Cleanup becomes a no-op after reaping. The descendant regression test preserves
 the leader's exit status and checks that a surviving descendant releases stdout.
 `ManagedChild` must remain the sole owner of child waits in production.
 
-- Add malformed-image fixtures, low-space/copy-interruption tests, and an
-  inactivity deadline for a stalled decoding stream. Exercise the reflink path
-  on a supporting filesystem; local testing has covered the copy fallback.
+The owner approved a 120-second decoder inactivity limit on 2026-09-10. Both
+compressed-image and virtual-disk stdout are nonblocking. Each read starts its
+budget after the previous destination write and progress callback, excluding
+time spent writing to the target. EOF passes the remaining budget to the child
+exit wait, rather than granting another 120 seconds. A timeout uses the shared
+cleanup path. This does not interrupt blocking kernel reads/writes or `fsync`.
+It is not a total operation deadline, and other managed commands retain their
+existing cancellable waits.
+
+Regression tests use short injected deadlines to cover partial output followed
+by a stall, delayed EOF with a still-running child, cancellation, and successful
+reads separated by downstream work longer than the timeout.
+
+## Remaining gates and provider limits
+
+- Add malformed-image fixtures and low-space/copy-interruption tests. Exercise
+  the reflink path on a supporting filesystem; local testing has covered the
+  copy fallback.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
 - Wire asynchronous desktop inspection and provider availability, truthful
