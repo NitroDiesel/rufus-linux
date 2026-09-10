@@ -548,6 +548,9 @@ impl AppState {
     }
 
     pub fn build_helper_request(&self) -> Result<HelperRequest, String> {
+        if let Some(reason) = self.operation_unavailable_reason() {
+            return Err(reason);
+        }
         let plan = self.build_plan().map_err(|e| e.to_string())?;
         let dev = self.selected().ok_or("No device")?;
         let format = FormatSpec {
@@ -762,6 +765,43 @@ mod tests {
         st.boot_selection = BootSelection::NonBootable;
         st.recompute();
         assert!(st.build_confirm().is_err());
+    }
+
+    #[test]
+    fn renamed_fixed_vhd_cannot_produce_a_write_request() {
+        let path = std::env::temp_dir().join(format!(
+            "rufus-renamed-vhd-{}-{}.img",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after Unix epoch")
+                .as_nanos()
+        ));
+        let mut bytes = vec![0u8; 4096 + 512];
+        bytes[4096..4104].copy_from_slice(b"conectix");
+        std::fs::write(&path, bytes).expect("write renamed VHD fixture");
+        let mut st = AppState::new();
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+        st.set_image(path.clone());
+        assert_eq!(
+            st.image_report.as_ref().map(|report| report.kind),
+            Some(ImageSourceKind::Vhd)
+        );
+        assert!(st
+            .operation_unavailable_reason()
+            .expect("unsupported VHD reason")
+            .contains("VHD/VHDX conversion"));
+        assert!(!st.can_start);
+        assert!(st
+            .build_helper_request()
+            .expect_err("VHD must not produce a write request")
+            .contains("VHD/VHDX conversion"));
+
+        std::fs::write(&path, vec![0u8; 4096]).expect("replace with raw fixture");
+        st.set_image(path.clone());
+        assert!(st.build_helper_request().is_ok());
+        std::fs::remove_file(path).expect("remove image fixture");
     }
 
     #[test]

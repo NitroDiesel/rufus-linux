@@ -165,6 +165,13 @@ with a concise reason.
 
 ## Known continuation points
 
+Work after 0.1.2 now recognizes fixed VHD footer signatures even when the file
+has been renamed, including the older 511-byte footer layout. The desktop
+request builder rechecks operation availability before constructing a helper
+request. Regression tests cover renamed VHDs, unchanged raw-image recognition,
+and refusal to construct a write request. These changes do not implement VHD
+conversion and are not included in the existing 0.1.2 release assets.
+
 These are known follow-ups, not claims that the current release is broken:
 
 - Run a packaged, real-polkit smoke test on disposable physical USB media for
