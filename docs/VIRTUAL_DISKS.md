@@ -25,6 +25,12 @@ The explicit provider integration test generates patterned 8 MiB raw data,
 converts it to fixed/dynamic VHD and fixed/dynamic VHDX, replaces the selected
 pathname after binding, and compares every decoded byte and its SHA-256.
 It checks size rejection and terminates a process group during active output.
+It also rejects 11 damaged copies across those four formats: 511-byte
+truncations, corrupt VHD footer checksums, checksummed type-4 VHD metadata,
+a corrupt dynamic-VHD header signature, and corrupt checksums in both redundant
+VHDX headers. Byte comparisons verify inspection leaves each input unchanged.
+These are selected corruption fixtures, not exhaustive format validation or
+genuine parent-chain coverage.
 Run it with:
 
 ```sh
@@ -64,6 +70,12 @@ with `--exact source_snapshot::tests::protected_snapshot_is_stable_and_read_only
 --ignored`. It operates only on anonymous regular-file fixtures. CI runs this
 test explicitly, alongside root-launched provider tests that verify dropped UIDs.
 
+Provider-independent tests inject low space and cancellation during the copy
+fallback. They verify copying stops at the next chunk boundary, the partial
+copy remains anonymous, the 256 MiB headroom boundary is enforced, sparse data
+is preserved byte-for-byte, and a shortened source fails with unexpected EOF.
+These tests do not fill a filesystem or prove the reflink path.
+
 ## Write cleanup and decoder deadlines
 
 Image writes now share one completion path that terminates the decoder and
@@ -96,9 +108,11 @@ reads separated by downstream work longer than the timeout.
 
 ## Remaining gates and provider limits
 
-- Add malformed-image fixtures and low-space/copy-interruption tests. Exercise
-  the reflink path on a supporting filesystem; local testing has covered the
-  copy fallback.
+- Exercise the reflink path on a supporting filesystem and actual low-space
+  filesystem behavior in isolation. Local testing has covered the copy
+  fallback and injected low-space failures.
+- Add genuine parent-dependent VHD/VHDX, 4Kn VHDX, and journal-replay fixtures
+  before claiming their documented rejection boundaries are verified end to end.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
 - Wire asynchronous desktop inspection and provider availability, truthful

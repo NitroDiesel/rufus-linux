@@ -2338,7 +2338,7 @@ mod tests {
         let _ = std::fs::remove_file(target_path);
     }
 
-    fn anonymous_fixture(payload: &[u8]) -> File {
+    pub(super) fn anonymous_fixture(payload: &[u8]) -> File {
         let mut file = File::options()
             .read(true)
             .write(true)

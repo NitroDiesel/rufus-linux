@@ -82,6 +82,16 @@ fn copy_bounded(
     size: u64,
     cancel: &CancellationToken,
 ) -> Result<(), HelperError> {
+    copy_with_space_check(source, destination, size, cancel, reserve_space)
+}
+
+fn copy_with_space_check(
+    source: &File,
+    destination: &mut File,
+    size: u64,
+    cancel: &CancellationToken,
+    mut reserve: impl FnMut(&File, u64) -> Result<(), HelperError>,
+) -> Result<(), HelperError> {
     use std::os::unix::fs::FileExt as _;
     let mut buffer = vec![0; 1024 * 1024];
     let mut offset = 0;
@@ -93,7 +103,7 @@ fn copy_bounded(
         if buffer[..count].iter().all(|byte| *byte == 0) {
             destination.seek(SeekFrom::Current(count as i64))?;
         } else {
-            reserve_space(destination, count as u64)?;
+            reserve(destination, count as u64)?;
             destination.write_all(&buffer[..count])?;
         }
         offset += count as u64;
@@ -110,6 +120,10 @@ fn reserve_space(file: &File, bytes: u64) -> Result<(), HelperError> {
     // SAFETY: successful fstatvfs initialized the structure.
     let info = unsafe { info.assume_init() };
     let available = u128::from(info.f_bavail) * u128::from(info.f_frsize);
+    check_available_space(available, bytes)
+}
+
+fn check_available_space(available: u128, bytes: u64) -> Result<(), HelperError> {
     if available < u128::from(bytes) + 256 * 1024 * 1024 {
         return Err(HelperError::Operation("not enough space in /var/tmp for a protected source snapshot; 256 MiB must remain free".into()));
     }
@@ -119,6 +133,96 @@ fn reserve_space(file: &File, bytes: u64) -> Result<(), HelperError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_space_guard_preserves_headroom_and_handles_large_requests() {
+        let reserve = 256 * 1024 * 1024;
+        assert!(check_available_space(reserve, 0).is_ok());
+        assert!(check_available_space(reserve - 1, 0).is_err());
+        assert!(check_available_space(reserve, 1).is_err());
+        assert!(check_available_space(reserve + 1, 1).is_ok());
+        assert!(check_available_space(u128::from(u64::MAX), u64::MAX).is_err());
+    }
+
+    #[test]
+    fn snapshot_copy_stops_at_chunk_boundaries_on_cancellation_or_low_space() {
+        let chunk = 1024 * 1024;
+        let source = super::super::tests::anonymous_fixture(&vec![0x5a; chunk * 2]);
+        for cancel_copy in [true, false] {
+            let mut destination = super::super::tests::anonymous_fixture(b"");
+            let cancel = CancellationToken::new();
+            let mut calls = 0;
+            let result = copy_with_space_check(
+                &source,
+                &mut destination,
+                (chunk * 2) as u64,
+                &cancel,
+                |_, bytes| {
+                    calls += 1;
+                    if cancel_copy {
+                        cancel.request();
+                    } else if calls == 2 {
+                        return check_available_space(256 * 1024 * 1024, bytes);
+                    }
+                    Ok(())
+                },
+            );
+            if cancel_copy {
+                assert!(matches!(result, Err(HelperError::Cancelled)));
+                assert_eq!(calls, 1);
+            } else {
+                assert!(result
+                    .expect_err("space exhaustion")
+                    .to_string()
+                    .contains("not enough space"));
+                assert_eq!(calls, 2);
+            }
+            assert_eq!(
+                destination.metadata().expect("partial copy metadata").len(),
+                chunk as u64
+            );
+            assert_eq!(
+                destination
+                    .metadata()
+                    .expect("anonymous copy metadata")
+                    .nlink(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_copy_preserves_sparse_bytes_and_rejects_short_sources() {
+        let chunk = 1024 * 1024;
+        let mut payload = vec![0; chunk * 3 + 17];
+        payload[chunk..chunk * 2].fill(0xa5);
+        let source = super::super::tests::anonymous_fixture(&payload);
+        let mut destination = super::super::tests::anonymous_fixture(b"");
+        copy_bounded(
+            &source,
+            &mut destination,
+            payload.len() as u64,
+            &CancellationToken::new(),
+        )
+        .expect("sparse copy");
+        destination.rewind().expect("rewind copy");
+        let mut actual = Vec::new();
+        destination
+            .read_to_end(&mut actual)
+            .expect("read sparse copy");
+        assert_eq!(actual, payload);
+        let mut short_copy = super::super::tests::anonymous_fixture(b"");
+        let error = copy_bounded(
+            &source,
+            &mut short_copy,
+            payload.len() as u64 + 1,
+            &CancellationToken::new(),
+        )
+        .expect_err("truncated source");
+        assert!(
+            matches!(error, HelperError::Io(error) if error.kind() == io::ErrorKind::UnexpectedEof)
+        );
+    }
 
     #[test]
     #[ignore = "requires root; uses only anonymous regular files under /var/tmp"]

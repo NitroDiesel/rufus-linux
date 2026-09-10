@@ -309,6 +309,69 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 
+    fn reject_damaged_copies(
+        source: &File,
+        path: &Path,
+        kind: ImageSourceKind,
+        user: &InvokingUser,
+    ) {
+        let mut encoded = Vec::new();
+        let mut input = source.try_clone().expect("clone fixture descriptor");
+        input.seek(SeekFrom::Start(0)).expect("rewind fixture");
+        input.read_to_end(&mut encoded).expect("read fixture");
+        let reject = |bytes: &[u8], expected: Option<&str>| {
+            std::fs::write(path, bytes).expect("write damaged fixture");
+            let source = File::open(path).expect("bind damaged fixture");
+            let error = inspect(&source, kind, user, &CancellationToken::new(), u64::MAX)
+                .expect_err("damaged image must not produce an export size");
+            if let Some(expected) = expected {
+                assert!(error.to_string().contains(expected), "{error}");
+            }
+            assert_eq!(std::fs::read(path).expect("read after rejection"), bytes);
+        };
+        reject(&encoded[..511], None);
+        match kind {
+            ImageSourceKind::Vhd => {
+                let footer_offset = if &encoded[..8] == b"conectix" {
+                    0
+                } else {
+                    encoded.len() - 512
+                };
+                let mut damaged = encoded.clone();
+                damaged[footer_offset + 64] ^= 1;
+                reject(&damaged, Some("VHD footer is invalid"));
+
+                // Preserve a valid checksum so rejection proves the parent-type guard.
+                let mut parent = encoded.clone();
+                let footer = &mut parent[footer_offset..footer_offset + 512];
+                footer[60..64].copy_from_slice(&4u32.to_be_bytes());
+                footer[64..68].fill(0);
+                let checksum = !footer.iter().map(|byte| u32::from(*byte)).sum::<u32>();
+                footer[64..68].copy_from_slice(&checksum.to_be_bytes());
+                reject(&parent, Some("parent-dependent VHDs are rejected"));
+
+                if footer_offset == 0 {
+                    let header_offset =
+                        u64::from_be_bytes(encoded[16..24].try_into().expect("header offset"));
+                    let header_offset = usize::try_from(header_offset).expect("fixture offset");
+                    assert_eq!(&encoded[header_offset..header_offset + 8], b"cxsparse");
+                    damaged = encoded;
+                    damaged[header_offset] ^= 1;
+                    reject(&damaged, Some("provider rejected the image"));
+                }
+            }
+            ImageSourceKind::Vhdx => {
+                // QEMU can use either redundant header; invalidate both CRC fields.
+                for offset in [64 * 1024, 128 * 1024] {
+                    assert_eq!(&encoded[offset..offset + 4], b"head");
+                    encoded[offset + 4] ^= 1;
+                }
+                reject(&encoded, Some("provider rejected the image"));
+            }
+            _ => unreachable!("virtual disk fixture"),
+        }
+    }
+
     #[test]
     #[ignore = "requires qemu-img, qemu-nbd, nbdinfo, and nbdcopy; run explicitly in CI"]
     fn providers_roundtrip_bound_sources_and_reject_oversized_targets() {
@@ -451,6 +514,12 @@ mod tests {
                 .all(|uid| uid == user.uid.to_string()));
             child.terminate_and_reap().expect("cancel process group");
             assert!(!child.group_exists().expect("process group state"));
+            reject_damaged_copies(
+                &source_file,
+                &fixture.dir.join(format!("{name}.damaged")),
+                kind,
+                &user,
+            );
         }
     }
 }
