@@ -74,7 +74,28 @@ Provider-independent tests inject low space and cancellation during the copy
 fallback. They verify copying stops at the next chunk boundary, the partial
 copy remains anonymous, the 256 MiB headroom boundary is enforced, sparse data
 is preserved byte-for-byte, and a shortened source fails with unexpected EOF.
-These tests do not fill a filesystem or prove the reflink path.
+These injected tests do not fill a filesystem or prove the reflink path.
+
+### Isolated filesystem evidence
+
+Manual checks on 2026-09-11 used source commit `9bd9fc7`, kernel
+`7.2.3-1-cachyos`, and btrfs-progs 7.1. Both ran through
+`unshare --mount --propagation private`, so temporary mounts did not replace
+host mounts outside the test process:
+
+- A 4 MiB tmpfs at `/var/tmp` caused the protected-snapshot success fixture to
+  exit 101 with the expected "not enough space" error and 256 MiB headroom
+  explanation. This proves initial refusal on a genuinely undersized
+  filesystem, not mid-copy ENOSPC handling.
+- A 512 MiB Btrfs image stored on a private 1 GiB tmpfs exercised copy-on-write.
+  The protected-snapshot test passed; `strace` observed
+  `ioctl(5, BTRFS_IOC_CLONE or FICLONE, 3) = 0`. The same test confirmed the copy
+  stayed unchanged after original-inode edits and denied the decoder write
+  access.
+
+The namespace exited, the temporary image was released, and host mount/loop
+checks found no remaining test mounts or loop device. These checks are not yet
+automated in CI and do not replace physical-media or mid-copy ENOSPC testing.
 
 ## Write cleanup and decoder deadlines
 
@@ -108,9 +129,9 @@ reads separated by downstream work longer than the timeout.
 
 ## Remaining gates and provider limits
 
-- Exercise the reflink path on a supporting filesystem and actual low-space
-  filesystem behavior in isolation. Local testing has covered the copy
-  fallback and injected low-space failures.
+- Automate the isolated Btrfs and undersized-filesystem checks above, and test
+  actual mid-copy filesystem exhaustion. Initial low-space refusal, reflink,
+  and the copy fallback have local evidence.
 - Add genuine parent-dependent VHD/VHDX, 4Kn VHDX, and journal-replay fixtures
   before claiming their documented rejection boundaries are verified end to end.
 - Verify these cleanup paths on loop-backed targets and disposable physical
