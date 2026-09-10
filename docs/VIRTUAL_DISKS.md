@@ -66,11 +66,26 @@ test explicitly, alongside root-launched provider tests that verify dropped UIDs
 
 ## Remaining gates and provider limits
 
+Image writes now share one completion path that terminates the decoder and
+attempts destination synchronization on success, cancellation, and stream
+errors. A failed flush remains an error; an earlier write/decoder failure is
+preserved alongside cleanup failures. Regression tests cover read/write errors,
+empty input, declared-size overflow after partial output, changed source size,
+decoded-size mismatch, checksum mismatch, and a corrupt gzip CRC. Discard/error
+devices make `fsync` fail deliberately to prove these error paths attempt it;
+these fixtures do not write physical media.
+
+Managed subprocesses observe exit with `waitid(WNOWAIT)`, signal remaining
+group members while the leader PID is still reserved, then reap the leader.
+Cleanup becomes a no-op after reaping. The descendant regression test preserves
+the leader's exit status and checks that a surviving descendant releases stdout.
+`ManagedChild` must remain the sole owner of child waits in production.
+
 - Add malformed-image fixtures, low-space/copy-interruption tests, and an
   inactivity deadline for a stalled decoding stream. Exercise the reflink path
   on a supporting filesystem; local testing has covered the copy fallback.
-- Prove decoder termination and destination synchronization on every error,
-  not only explicit cancellation.
+- Verify these cleanup paths on loop-backed targets and disposable physical
+  media, including write failures and disconnects.
 - Wire asynchronous desktop inspection and provider availability, truthful
   virtual-size confirmation, and native package dependencies. Use the UI skill
   and review/visual gates in `PROJECT_CONTEXT.md` for that change.
