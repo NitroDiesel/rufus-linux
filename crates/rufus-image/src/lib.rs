@@ -117,8 +117,8 @@ pub fn analyze(path: &Path) -> Result<ImageReport, ImageError> {
         return Ok(report);
     }
 
-    // VHD: "conectix" at offset 0 for fixed/dynamic footer-less connectix header at start of dynamic
-    if header.starts_with(b"conectix") || ext == "vhd" {
+    if header.starts_with(b"conectix") || ext == "vhd" || detect_vhd_footer(&mut file, size_bytes)?
+    {
         report.kind = ImageSourceKind::Vhd;
         report.notes.push(
             "VHD input is recognized but conversion is not available in this release.".into(),
@@ -232,6 +232,21 @@ pub fn analyze(path: &Path) -> Result<ImageReport, ImageError> {
     Ok(report)
 }
 
+fn detect_vhd_footer(file: &mut File, size_bytes: u64) -> Result<bool, ImageError> {
+    // Fixed VHDs have no leading header; older writers used a 511-byte footer.
+    for footer_size in [512, 511] {
+        if let Some(offset) = size_bytes.checked_sub(footer_size) {
+            file.seek(SeekFrom::Start(offset))?;
+            let mut cookie = [0; 8];
+            file.read_exact(&mut cookie)?;
+            if &cookie == b"conectix" {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 fn detect_iso(file: &mut File) -> Result<bool, ImageError> {
     // Primary Volume Descriptor at sector 16 (2048-byte sectors) + 1 byte type + "CD001"
     file.seek(SeekFrom::Start(16 * 2048 + 1))?;
@@ -341,6 +356,39 @@ mod tests {
             report.kind,
             ImageSourceKind::Iso | ImageSourceKind::IsoHybrid
         ));
+    }
+
+    #[test]
+    fn detects_fixed_vhd_footer_without_vhd_extension() {
+        for footer_size in [512, 511] {
+            let path = temp_path("fixed-vhd").with_extension("img");
+            let mut bytes = vec![0u8; 4096 + footer_size];
+            bytes[510..512].copy_from_slice(&[0x55, 0xaa]);
+            bytes[4096..4104].copy_from_slice(b"conectix");
+            std::fs::write(&path, bytes).expect("write VHD fixture");
+            let report = analyze(&path).expect("analyze renamed VHD");
+            std::fs::remove_file(&path).expect("remove VHD fixture");
+            assert_eq!(
+                report.kind,
+                ImageSourceKind::Vhd,
+                "footer size {footer_size}"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_images_without_vhd_footer_remain_raw() {
+        for size in [0, 8, 510, 511, 512, 4096] {
+            let path = temp_path("raw").with_extension("img");
+            let mut bytes = vec![0u8; size];
+            if size >= 1024 {
+                bytes[512..520].copy_from_slice(b"conectix");
+            }
+            std::fs::write(&path, bytes).expect("write raw fixture");
+            let report = analyze(&path).expect("analyze raw fixture");
+            std::fs::remove_file(&path).expect("remove raw fixture");
+            assert_eq!(report.kind, ImageSourceKind::Raw, "image size {size}");
+        }
     }
 
     #[test]
