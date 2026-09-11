@@ -512,8 +512,29 @@ mod tests {
                 .split_whitespace()
                 .skip(1)
                 .all(|uid| uid == user.uid.to_string()));
+            assert!(child.group_exists().expect("active process group"));
             child.terminate_and_reap().expect("cancel process group");
-            assert!(!child.group_exists().expect("process group state"));
+            assert!(child.reaped, "decoder leader was not reaped");
+            // A killed descendant may remain a zombie until its new parent reaps it.
+            // Check pipe closure instead of requiring immediate PGID disappearance.
+            set_nonblocking(stdout.as_raw_fd()).expect("nonblocking decoder stdout");
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let mut remaining = [0; 65536];
+            loop {
+                assert!(
+                    Instant::now() < deadline,
+                    "decoder retained stdout after cancellation"
+                );
+                match stdout.read(&mut remaining) {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(error) => panic!("read cancelled decoder stdout: {error}"),
+                }
+            }
             reject_damaged_copies(
                 &source_file,
                 &fixture.dir.join(format!("{name}.damaged")),
