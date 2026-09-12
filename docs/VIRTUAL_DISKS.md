@@ -32,6 +32,14 @@ VHDX headers. Byte comparisons verify inspection leaves each input unchanged.
 These are selected corruption fixtures, not exhaustive format validation or
 genuine parent-chain coverage.
 
+Two additional copies exercise 4K logical/physical sectors. The test follows
+the generated fixed/dynamic VHDX metadata tables and changes both sector-size
+values from 512 to 4096, leaving headers and payload mappings intact. These
+standalone 8 MiB fixtures have no sector bitmap blocks. Both are rejected and
+remain byte-for-byte unchanged; the original 512-byte-sector fixtures still
+round-trip. This is generated metadata coverage, not a Windows-created 4Kn
+operating-system image or a 4Kn physical-target test.
+
 The provider integration also uses QEMU's pinned, replayable VHDX journal
 fixture. It verifies read-only inspection refuses the unreplayed log without
 changing the source bytes. A separate disposable control copy is repaired by
@@ -140,9 +148,10 @@ reads separated by downstream work longer than the timeout.
 - Automate the isolated Btrfs and undersized-filesystem checks above, and test
   actual mid-copy filesystem exhaustion. Initial low-space refusal, reflink,
   and the copy fallback have local evidence.
-- Add genuine parent-dependent VHD/VHDX and 4Kn VHDX fixtures before claiming
-  those rejection boundaries are verified end to end. One real unreplayed-log
-  fixture now verifies journal refusal and source preservation.
+- Add genuine parent-dependent VHD/VHDX fixtures before claiming those rejection
+  boundaries are verified end to end. Generated fixed/dynamic 4Kn metadata and
+  one real unreplayed-log fixture now verify refusal and source preservation.
+  Cross-check Windows-created 4Kn media before extending sector-size support.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
 - Complete virtual-size destructive confirmation and native package dependencies.
@@ -231,6 +240,10 @@ Local screenshots are in ignored `target/ui-validation/`; they are evidence
 artifacts, not a dependency of the cloud-agent workflow.
 
 ## Primary references
+
+- [VHDX logical-sector requirements](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-vhdx/e45dcf18-f45b-4507-8760-e76fa538a61b).
+  Fixture table GUIDs and layout also follow the
+  [QEMU VHDX reader](https://github.com/qemu/qemu/blob/v10.0.0/block/vhdx.c).
 
 - [QEMU journal fixture provenance](https://github.com/qemu/qemu/commit/e78835b722eb26f5a56370166e99b69e9751ea2a),
   pinned locally with its digest and license in `crates/rufus-helper/tests/fixtures/`.

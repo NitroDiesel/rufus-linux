@@ -310,7 +310,52 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 
-    fn reject_damaged_copies(
+    fn vhdx_sector_fields(encoded: &[u8]) -> [usize; 2] {
+        // Follow the generated fixture's region/metadata tables rather than
+        // assuming where QEMU placed the metadata values. MS-VHDX sections 2.5/2.6.
+        let region_guid = [
+            0x06, 0xa2, 0x7c, 0x8b, 0x90, 0x47, 0x9a, 0x4b, 0xb8, 0xfe, 0x57, 0x5f, 0x05, 0x0f,
+            0x88, 0x6e,
+        ];
+        let table = &encoded[192 * 1024..256 * 1024];
+        assert_eq!(&table[..4], b"regi");
+        let count = u32::from_le_bytes(table[8..12].try_into().expect("region count")) as usize;
+        let region = table[16..16 + count * 32]
+            .chunks_exact(32)
+            .find(|entry| entry[..16] == region_guid)
+            .expect("metadata region");
+        let offset = usize::try_from(u64::from_le_bytes(
+            region[16..24].try_into().expect("metadata offset"),
+        ))
+        .expect("fixture offset fits usize");
+        let metadata = &encoded[offset..offset + 65536];
+        assert_eq!(&metadata[..8], b"metadata");
+        let count =
+            u16::from_le_bytes(metadata[10..12].try_into().expect("metadata count")) as usize;
+        [
+            [
+                0x1d, 0xbf, 0x41, 0x81, 0x6f, 0xa9, 0x09, 0x47, 0xba, 0x47, 0xf2, 0x33, 0xa8, 0xfa,
+                0xab, 0x5f,
+            ],
+            [
+                0xc7, 0x48, 0xa3, 0xcd, 0x5d, 0x44, 0x71, 0x44, 0x9c, 0xc9, 0xe9, 0x88, 0x52, 0x51,
+                0xc5, 0x56,
+            ],
+        ]
+        .map(|guid| {
+            let entry = metadata[32..32 + count * 32]
+                .chunks_exact(32)
+                .find(|entry| entry[..16] == guid)
+                .expect("sector size metadata");
+            assert_eq!(&entry[20..24], &4u32.to_le_bytes());
+            let value = offset
+                + u32::from_le_bytes(entry[16..20].try_into().expect("value offset")) as usize;
+            assert_eq!(&encoded[value..value + 4], &512u32.to_le_bytes());
+            value
+        })
+    }
+
+    fn reject_unsupported_copies(
         source: &File,
         path: &Path,
         kind: ImageSourceKind,
@@ -321,10 +366,10 @@ mod tests {
         input.seek(SeekFrom::Start(0)).expect("rewind fixture");
         input.read_to_end(&mut encoded).expect("read fixture");
         let reject = |bytes: &[u8], expected: Option<&str>| {
-            std::fs::write(path, bytes).expect("write damaged fixture");
-            let source = File::open(path).expect("bind damaged fixture");
+            std::fs::write(path, bytes).expect("write rejection fixture");
+            let source = File::open(path).expect("bind rejection fixture");
             let error = inspect(&source, kind, user, &CancellationToken::new(), u64::MAX)
-                .expect_err("damaged image must not produce an export size");
+                .expect_err("unsupported image must not produce an export size");
             if let Some(expected) = expected {
                 assert!(error.to_string().contains(expected), "{error}");
             }
@@ -362,6 +407,13 @@ mod tests {
                 }
             }
             ImageSourceKind::Vhdx => {
+                let mut four_kn = encoded.clone();
+                for offset in vhdx_sector_fields(&encoded) {
+                    four_kn[offset..offset + 4].copy_from_slice(&4096u32.to_le_bytes());
+                }
+                // These standalone 8 MiB fixtures have no sector bitmap blocks;
+                // changing sector size leaves their payload block mapping intact.
+                reject(&four_kn, Some("provider rejected the image"));
                 // QEMU can use either redundant header; invalidate both CRC fields.
                 for offset in [64 * 1024, 128 * 1024] {
                     assert_eq!(&encoded[offset..offset + 4], b"head");
@@ -536,7 +588,7 @@ mod tests {
                     Err(error) => panic!("read cancelled decoder stdout: {error}"),
                 }
             }
-            reject_damaged_copies(
+            reject_unsupported_copies(
                 &source_file,
                 &fixture.dir.join(format!("{name}.damaged")),
                 kind,

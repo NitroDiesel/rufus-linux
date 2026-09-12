@@ -179,7 +179,8 @@ it records provider limits, the approved source-snapshot fallback and decoder
 inactivity deadline, shared write-error cleanup, and the remaining
 fault-injection, UI, packaging, and boot gates. A pinned QEMU journal fixture
 now verifies read-only refusal and source preservation, with a separate repaired
-control. Production VHD/VHDX entry points remain blocked.
+control. Generated fixed/dynamic 4Kn metadata variants also verify rejection
+without source changes. Production VHD/VHDX entry points remain blocked.
 
 The continuation branch runs image inspection off the UI thread and
 uses the helper library's non-root, read-only inspection API for optional
