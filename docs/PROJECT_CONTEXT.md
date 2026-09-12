@@ -188,9 +188,10 @@ and waits for worker cleanup. Read `VIRTUAL_DISKS.md` for limits and current
 verification evidence. This work is not in the 0.1.2 release assets.
 
 That integration also fixes workbench sizing and adds explicit modal keyboard
-focus trapping. Settled-size light/dark and Log/About checks passed locally;
-the isolated X11 startup-paint issue and physical confirmation smoke test remain
-open in `VIRTUAL_DISKS.md`.
+focus trapping. Light/dark and Log/About checks passed locally. Explicit native
+startup sizing fixes the reproduced X11 paint offset, with a CI screenshot
+regression at three scale factors. Normal X11/Wayland desktop and physical
+confirmation smoke tests remain open in `VIRTUAL_DISKS.md`.
 
 These are known follow-ups, not claims that the current release is broken:
 

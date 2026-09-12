@@ -195,12 +195,31 @@ wheel input, repeated forward/backward Tab, Escape, and Space activation.
 Confirmation uses the same overlay with a two-button focus cycle; that cycle
 still needs a disposable-device UI smoke test before a release.
 
-The isolated X11 session intermittently rendered the initial frame shifted
-upward until a one-pixel resize. The settled-size checks above passed, but this
-startup-rendering issue is not diagnosed or claimed fixed. Recheck it on a
-normal X11/Wayland desktop before the next installer release. Local screenshots
-are in ignored `target/ui-validation/`; they are evidence artifacts, not a
-dependency of the cloud-agent workflow.
+The isolated X11 startup offset was reproduced without a window manager: the
+frame shifted upward by 120 pixels, leaving a black strip below. Slint 1.9.2
+creates an initial 800x600 native window before requesting the workbench's
+560x720 preferred size. Its GLX resize path is a no-op, and the 120-pixel size
+difference matches the observed offset. A stale drawable is the inferred cause;
+the graphics driver was not instrumented.
+
+The desktop now sets the native initial size before graphics-context creation,
+using the pinned winit backend's public window-attributes hook. Native DPI uses
+logical dimensions; an explicit positive `SLINT_SCALE_FACTOR` uses physical
+dimensions. Other backend selections retain Slint's normal selection behavior.
+Keep these dimensions synchronized with `AppWindow`'s preferred dimensions.
+
+On 2026-09-12, the corrected no-window-manager frame matched its post-resize
+capture pixel-for-pixel. The new `scripts/ci/desktop-render.sh` passed all 18
+startup, minimum-size, and large-window checks across light/dark and scale
+factors 1, 1.25, and 2. It checks the full-height canvas gutter, which detects
+the old black strip; it is not a complete visual or interaction test. Separate
+Openbox captures covered both themes at 560x720 and maximized size, and native
+X11 scaling at 2 produced a complete 1120x1440 startup frame. The 80 regular
+workspace tests, formatting, Clippy, and optimized desktop build passed again.
+
+Recheck on a normal X11/Wayland desktop before the next installer release.
+Local screenshots are in ignored `target/ui-validation/`; they are evidence
+artifacts, not a dependency of the cloud-agent workflow.
 
 ## Primary references
 

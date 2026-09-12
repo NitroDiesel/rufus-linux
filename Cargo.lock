@@ -3342,6 +3342,7 @@ name = "rufus-linux"
 version = "0.1.2"
 dependencies = [
  "ashpd",
+ "i-slint-backend-winit",
  "libc",
  "pollster",
  "rufus-core",

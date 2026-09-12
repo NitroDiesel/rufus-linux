@@ -21,7 +21,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype-dev \
             libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
-            desktop-file-utils appstream libxml2-utils parted dosfstools qemu-utils libnbd-bin
+            desktop-file-utils appstream libxml2-utils parted dosfstools qemu-utils libnbd-bin \
+            xvfb xauth xdotool imagemagick libgl1-mesa-dri
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test
@@ -47,6 +48,11 @@ jobs:
         run: cargo clippy -p rufus-linux --all-targets --locked -- -D warnings
       - name: Release build
         run: cargo build --workspace --release --locked
+      - name: Desktop startup rendering
+        run: >-
+          timeout 90s xvfb-run -a -s '-screen 0 2200x1800x24'
+          dbus-run-session bash scripts/ci/desktop-render.sh
+          target/release/rufus-linux target/ui-validation/ci
       - name: Desktop metadata
         run: |
           desktop-file-validate packaging/desktop/io.github.nitrodiesel.rufus-linux.desktop

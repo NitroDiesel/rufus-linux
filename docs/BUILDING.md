@@ -17,6 +17,24 @@ cargo run
 
 Use `cargo build --release` for packaging. Do not run the complete GUI with `sudo`; privilege belongs in the helper only.
 
+The desktop pins a direct winit-backend dependency to the same version as Slint
+to set the initial native window size before creating the OpenGL drawable. It
+reuses the existing renderer dependencies. Keep the Rust initial dimensions and
+Slint preferred dimensions together when changing the default window size.
+
+The X11 startup regression requires Xvfb, xauth, xdotool, ImageMagick, Mesa, and
+a session D-Bus launcher. Run it without a window manager on a private display:
+
+```sh
+timeout 90s xvfb-run -a -s '-screen 0 2200x1800x24' \
+  dbus-run-session bash scripts/ci/desktop-render.sh \
+  target/release/rufus-linux target/ui-validation/ci
+```
+
+It launches only the unprivileged GUI, captures light/dark frames at three
+scale factors and sizes, and checks for unpainted startup gutters. It does not
+write devices or replace keyboard, modal, real-desktop, or physical-media tests.
+
 ## Runtime capability providers
 
 Distribution installers include the filesystem formatters below so the complete format menu works immediately. Archive decoders remain optional. Provider detection still fails closed and shows a direct remedy if a tool is removed.

@@ -37,6 +37,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Match AppWindow's preferred size before Slint creates the GLX drawable.
+    // Other explicit backend selections retain Slint's normal selection behavior.
+    let backend = std::env::var("SLINT_BACKEND").unwrap_or_default();
+    if matches!(
+        backend.to_ascii_lowercase().as_str(),
+        "" | "winit" | "gl" | "femtovg" | "winit-gl" | "winit-femtovg"
+    ) {
+        let backend = i_slint_backend_winit::Backend::builder()
+            .with_window_attributes_hook(|attributes| {
+                let size = i_slint_backend_winit::winit::dpi::LogicalSize::new(560.0, 720.0);
+                let scale = std::env::var("SLINT_SCALE_FACTOR")
+                    .ok()
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .filter(|scale| *scale > 0.0);
+                if let Some(scale) = scale {
+                    attributes.with_inner_size(size.to_physical::<u32>(f64::from(scale)))
+                } else {
+                    attributes.with_inner_size(size)
+                }
+            })
+            .build()?;
+        slint::platform::set_platform(Box::new(backend))?;
+    }
+
     let ui = AppWindow::new()?;
     let state = Rc::new(RefCell::new(AppState::new()));
     let running_helper = Rc::new(RefCell::new(None::<RunningHelper>));
