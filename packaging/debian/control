@@ -11,7 +11,9 @@ Homepage: https://github.com/NitroDiesel/rufus-linux
 Package: rufus-linux
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, polkitd, pkexec,
- util-linux, parted, dosfstools, exfatprogs, ntfs-3g, e2fsprogs, udftools
+ util-linux, parted, dosfstools, exfatprogs, ntfs-3g, e2fsprogs, udftools,
+ libxkbcommon-x11-0, libxcursor1, libx11-xcb1, libxi6,
+ libwayland-client0, libwayland-egl1, libgl1, libegl1
 Recommends: libarchive-tools, xz-utils, bzip2, zstd
 Description: Format and create bootable USB drives
  Independent Linux port inspired by Rufus. Writes and formats removable

@@ -179,8 +179,11 @@ it records provider limits, the approved source-snapshot fallback and decoder
 inactivity deadline, shared write-error cleanup, and the remaining
 fault-injection, UI, packaging, and boot gates. A pinned QEMU journal fixture
 now verifies read-only refusal and source preservation, with a separate repaired
-control. Generated fixed/dynamic 4Kn metadata variants also verify rejection
-without source changes. Production VHD/VHDX entry points remain blocked.
+control. Generated fixed/dynamic 4Kn metadata variants and writer-generated
+VHD/VHDX parent chains also verify rejection without source changes. The optional
+parent-chain generator is documented under `scripts/fixtures/parent-chains/`;
+its .NET dependencies are not needed by Rufus or normal CI. Production VHD/VHDX
+entry points remain blocked.
 
 The continuation branch runs image inspection off the UI thread and
 uses the helper library's non-root, read-only inspection API for optional
@@ -194,6 +197,13 @@ focus trapping. Light/dark and Log/About checks passed locally. Explicit native
 startup sizing fixes the reproduced X11 paint offset, with a CI screenshot
 regression at three scale factors. Normal X11/Wayland desktop and physical
 confirmation smoke tests remain open in `VIRTUAL_DISKS.md`.
+
+The startup CI test exposed a missing `libxkbcommon-x11` runtime dependency.
+The continuation branch declares the dynamically loaded X11, Wayland, and
+OpenGL/EGL libraries in all three native recipes and checks the built package
+metadata. AppImage users still supply the host display stack. Read `BUILDING.md`
+for distribution package names; this correction is
+not in the existing 0.1.2 release assets.
 
 These are known follow-ups, not claims that the current release is broken:
 

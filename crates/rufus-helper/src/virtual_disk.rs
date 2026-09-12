@@ -596,28 +596,91 @@ mod tests {
             );
         }
         reject_unreplayed_journal(&fixture, &user);
+        reject_parent_chains(&fixture, &user);
+    }
+
+    fn unpack_fixture(name: &str, checksum: &str, size: usize) -> Vec<u8> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        let compressed = std::fs::read(&path).expect("read pinned fixture");
+        assert_eq!(format!("{:x}", Sha256::digest(compressed)), checksum);
+        let output = Command::new("/usr/bin/bzip2")
+            .arg("-dc")
+            .arg(path)
+            .output()
+            .expect("decompress pinned fixture");
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), size);
+        output.stdout
+    }
+
+    fn reject_parent_chains(fixture: &Fixture, user: &InvokingUser) {
+        let mut originals = Vec::new();
+        for (name, checksum, size, kind, parent) in [
+            (
+                "parent.vhd",
+                "e35f5236e25f3b47b81b80f2471a978dd13b931893a4a91b32cc4601da6c687e",
+                8_394_752,
+                ImageSourceKind::Vhd,
+                true,
+            ),
+            (
+                "child.vhd",
+                "31bcb2b830e256a0be839276a352f9f76c473d9e8f4d54c72879f706de986ac4",
+                4_200_448,
+                ImageSourceKind::Vhd,
+                false,
+            ),
+            (
+                "parent.vhdx",
+                "3c78e4ffe7554c34de6a219c948135d827a2f4fa032fdccc71b1a63a3b244cae",
+                12_582_912,
+                ImageSourceKind::Vhdx,
+                true,
+            ),
+            (
+                "child.vhdx",
+                "4f3efb282aff3ae7109527e6586caa8e1ec4494e5acea64019495888cfcd8b26",
+                9_437_184,
+                ImageSourceKind::Vhdx,
+                false,
+            ),
+        ] {
+            let bytes = unpack_fixture(&format!("{name}.bz2"), checksum, size);
+            let path = fixture.dir.join(name);
+            std::fs::write(&path, &bytes).expect("write parent-chain fixture");
+            let source = File::open(&path).expect("bind parent-chain fixture");
+            let result = inspect(&source, kind, user, &CancellationToken::new(), u64::MAX);
+            if parent {
+                assert_eq!(
+                    result.expect("standalone parent must open"),
+                    1024 * 1024 * 1024
+                );
+            } else {
+                let error = result.expect_err("parent-dependent child must be refused");
+                let expected = if kind == ImageSourceKind::Vhd {
+                    "parent-dependent VHDs are rejected"
+                } else {
+                    "provider rejected the image"
+                };
+                assert!(error.to_string().contains(expected), "{name}: {error}");
+            }
+            originals.push((path, bytes));
+        }
+        for (path, bytes) in originals {
+            assert_eq!(std::fs::read(path).expect("unchanged chain fixture"), bytes);
+        }
     }
 
     fn reject_unreplayed_journal(fixture: &Fixture, user: &InvokingUser) {
-        let compressed = include_bytes!("../tests/fixtures/dirty-log.vhdx.bz2");
-        assert_eq!(
-            format!("{:x}", Sha256::digest(compressed)),
-            "f294ddc9a9ab2a621cee73d6ac30ea692a8864ebd14be211e795d4c5b400adbb"
+        let bytes = unpack_fixture(
+            "dirty-log.vhdx.bz2",
+            "f294ddc9a9ab2a621cee73d6ac30ea692a8864ebd14be211e795d4c5b400adbb",
+            30 * 1024 * 1024,
         );
-        let output = Command::new("/usr/bin/bzip2")
-            .args([
-                "-dc",
-                concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/tests/fixtures/dirty-log.vhdx.bz2"
-                ),
-            ])
-            .output()
-            .expect("decompress pinned journal fixture");
-        assert!(output.status.success());
-        assert_eq!(output.stdout.len(), 30 * 1024 * 1024);
         let original_path = fixture.dir.join("unreplayed.vhdx");
-        std::fs::write(&original_path, &output.stdout).expect("write journal fixture");
+        std::fs::write(&original_path, &bytes).expect("write journal fixture");
         let original = File::open(&original_path).expect("bind journal fixture");
         let error = inspect(
             &original,
@@ -633,13 +696,13 @@ mod tests {
         );
         assert_eq!(
             std::fs::read(&original_path).expect("unchanged source"),
-            output.stdout
+            bytes
         );
 
         // Repair only a disposable control copy, never the selected source.
         // Success afterward proves the fixture is replayable, not simply corrupt.
         let control_path = fixture.dir.join("replayed-control.vhdx");
-        std::fs::write(&control_path, &output.stdout).expect("write control copy");
+        std::fs::write(&control_path, &bytes).expect("write control copy");
         let control = OpenOptions::new()
             .read(true)
             .write(true)
@@ -679,7 +742,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read(&original_path).expect("original after control"),
-            output.stdout
+            bytes
         );
     }
 }

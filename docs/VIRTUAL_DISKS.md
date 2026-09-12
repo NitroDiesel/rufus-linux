@@ -32,6 +32,20 @@ VHDX headers. Byte comparisons verify inspection leaves each input unchanged.
 These are selected corruption fixtures, not exhaustive format validation or
 genuine parent-chain coverage.
 
+Separate pinned VHD/VHDX parent-child pairs now come from LTRData DiscUtils
+1.0.88. The optional generator verifies inherited and overridden synthetic
+bytes by reopening each child through its parent chain. The Rust integration
+opens both standalone parents at 1 GiB, refuses both children, and verifies all
+four source files remain unchanged after the probes. The writer, source commit,
+package hashes, generation limits, and regeneration instructions live in
+`scripts/fixtures/parent-chains/README.md`. The compressed fixtures total about
+2 KiB and add nothing to the installed application.
+
+On 2026-09-12, the expanded provider suite passed as both the desktop user and
+root with dropped provider privileges. The 80 regular workspace tests and
+Clippy with warnings denied also passed. These file-only checks do not open
+physical target devices.
+
 Two additional copies exercise 4K logical/physical sectors. The test follows
 the generated fixed/dynamic VHDX metadata tables and changes both sector-size
 values from 512 to 4096, leaving headers and payload mappings intact. These
@@ -148,10 +162,10 @@ reads separated by downstream work longer than the timeout.
 - Automate the isolated Btrfs and undersized-filesystem checks above, and test
   actual mid-copy filesystem exhaustion. Initial low-space refusal, reflink,
   and the copy fallback have local evidence.
-- Add genuine parent-dependent VHD/VHDX fixtures before claiming those rejection
-  boundaries are verified end to end. Generated fixed/dynamic 4Kn metadata and
-  one real unreplayed-log fixture now verify refusal and source preservation.
-  Cross-check Windows-created 4Kn media before extending sector-size support.
+- Cross-check Hyper-V-created parent chains and 4Kn media before extending
+  those capabilities. Writer-generated VHD/VHDX chains, fixed/dynamic 4Kn
+  metadata, and a real unreplayed-log fixture now verify the current refusal
+  paths and source preservation; they do not cover every format variation.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
 - Complete virtual-size destructive confirmation and native package dependencies.

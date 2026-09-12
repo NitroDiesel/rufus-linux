@@ -50,6 +50,11 @@ jobs:
           package="$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -n "$package"
           dpkg-deb --info "$package"
+          dependencies="$(dpkg-deb --field "$package" Depends | tr ',' '\n')"
+          for dependency in libxkbcommon-x11-0 libxcursor1 libx11-xcb1 libxi6 \
+            libwayland-client0 libwayland-egl1 libgl1 libegl1; do
+            grep -Eq "^[[:space:]]*$dependency([[:space:]]|$)" <<< "$dependencies"
+          done
           dpkg-deb --contents "$package"
           dpkg-deb --fsys-tarfile "$package" |
             tar -tf - |
@@ -105,6 +110,11 @@ jobs:
               )"
               test -n "$package"
               rpm -qpi "$package"
+              dependencies="$(rpm -qpR "$package")"
+              for dependency in libxkbcommon-x11 libXcursor libX11-xcb libXi \
+                wayland-libs libglvnd-glx libglvnd-egl; do
+                grep -Fx "$dependency" <<< "$dependencies"
+              done
               rpm -qpl "$package" | grep -Fx /usr/bin/rufus-linux
               rpm -qpl "$package" | grep -Fx /usr/libexec/rufus-linux-helper
               cp "$package" /src/dist/
@@ -144,7 +154,8 @@ jobs:
               pacman -Syu --noconfirm \
                 rust cargo polkit util-linux parted dosfstools exfatprogs \
                 ntfsprogs e2fsprogs udftools \
-                fontconfig freetype2 libxkbcommon wayland libx11 libxcb
+                fontconfig freetype2 libxkbcommon libxkbcommon-x11 \
+                libxcursor libxi libglvnd wayland libx11 libxcb
               useradd --create-home builder
               workdir=/home/builder/package
               install -d -o builder -g builder "$workdir"
@@ -166,6 +177,11 @@ jobs:
               )"
               test -n "$package"
               bsdtar -tf "$package" | grep -Fx usr/bin/rufus-linux
+              dependencies="$(bsdtar -xOf "$package" .PKGINFO)"
+              for dependency in libxkbcommon-x11 libxcursor libxi libglvnd \
+                wayland libx11 libxcb; do
+                grep -Fx "depend = $dependency" <<< "$dependencies"
+              done
               bsdtar -tf "$package" |
                 grep -Fx usr/libexec/rufus-linux-helper
               cp "$package" /src/dist/

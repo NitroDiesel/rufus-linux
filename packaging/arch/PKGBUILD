@@ -8,6 +8,7 @@ url="https://github.com/NitroDiesel/rufus-linux"
 license=('GPL-3.0-or-later')
 depends=('polkit' 'util-linux' 'parted' 'dosfstools' 'exfatprogs' 'ntfsprogs'
          'e2fsprogs' 'udftools' 'fontconfig' 'freetype2' 'libxkbcommon'
+         'libxkbcommon-x11' 'libxcursor' 'libxi' 'libglvnd'
          'wayland' 'libx11' 'libxcb')
 optdepends=(
   'gzip: gzip and Unix compress image support'

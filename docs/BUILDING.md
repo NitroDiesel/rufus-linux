@@ -22,8 +22,10 @@ to set the initial native window size before creating the OpenGL drawable. It
 reuses the existing renderer dependencies. Keep the Rust initial dimensions and
 Slint preferred dimensions together when changing the default window size.
 
-The X11 startup regression requires Xvfb, xauth, xdotool, ImageMagick, Mesa, and
-a session D-Bus launcher. Run it without a window manager on a private display:
+The X11 startup regression requires Xvfb, xauth, xdotool, ImageMagick, Mesa,
+libxkbcommon-x11, and a session D-Bus launcher. Ubuntu's `libxkbcommon-dev` does
+not supply the X11 runtime; install `libxkbcommon-x11-0` explicitly. Run the test
+without a window manager on a private display:
 
 ```sh
 timeout 90s xvfb-run -a -s '-screen 0 2200x1800x24' \
@@ -36,6 +38,20 @@ scale factors and sizes, and checks for unpainted startup gutters. It does not
 write devices or replace keyboard, modal, real-desktop, or physical-media tests.
 
 ## Runtime capability providers
+
+Native packages explicitly require the display libraries below. Winit and
+Glutin load them with `dlopen`, so linked-library dependency scanners cannot
+discover them. The release workflow checks each generated package's metadata.
+AppImage users supply these libraries through their host display stack.
+
+| Display runtime | Debian/Ubuntu | Fedora | Arch |
+|---|---|---|---|
+| X11 keyboard, cursor, input, XCB bridge | `libxkbcommon-x11-0 libxcursor1 libx11-xcb1 libxi6` | `libxkbcommon-x11 libXcursor libX11-xcb libXi` | `libxkbcommon-x11 libxcursor libxi libx11 libxcb` |
+| Wayland client and EGL bridge | `libwayland-client0 libwayland-egl1` | `wayland-libs` | `wayland` |
+| OpenGL/EGL dispatch | `libgl1 libegl1` | `libglvnd-glx libglvnd-egl` | `libglvnd` |
+
+The host still supplies a working display server and graphics driver. Metadata
+checks do not replace installation and GUI tests on a clean desktop.
 
 Distribution installers include the filesystem formatters below so the complete format menu works immediately. Archive decoders remain optional. Provider detection still fails closed and shows a direct remedy if a tool is removed.
 
