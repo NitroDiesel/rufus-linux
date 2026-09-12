@@ -220,6 +220,7 @@ pub(super) fn decoder(
 mod tests {
     use super::*;
     use rufus_helper_protocol::SourceSpec;
+    use std::fs::OpenOptions;
     use std::os::unix::fs::DirBuilderExt;
 
     struct Fixture {
@@ -373,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires qemu-img, qemu-nbd, nbdinfo, and nbdcopy; run explicitly in CI"]
+    #[ignore = "requires qemu-img, qemu-nbd, nbdinfo, nbdcopy, and bzip2; run explicitly in CI"]
     fn providers_roundtrip_bound_sources_and_reject_oversized_targets() {
         require_tools().expect("required providers");
         let fixture = Fixture::new();
@@ -542,5 +543,91 @@ mod tests {
                 &user,
             );
         }
+        reject_unreplayed_journal(&fixture, &user);
+    }
+
+    fn reject_unreplayed_journal(fixture: &Fixture, user: &InvokingUser) {
+        let compressed = include_bytes!("../tests/fixtures/dirty-log.vhdx.bz2");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(compressed)),
+            "f294ddc9a9ab2a621cee73d6ac30ea692a8864ebd14be211e795d4c5b400adbb"
+        );
+        let output = Command::new("/usr/bin/bzip2")
+            .args([
+                "-dc",
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/fixtures/dirty-log.vhdx.bz2"
+                ),
+            ])
+            .output()
+            .expect("decompress pinned journal fixture");
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 30 * 1024 * 1024);
+        let original_path = fixture.dir.join("unreplayed.vhdx");
+        std::fs::write(&original_path, &output.stdout).expect("write journal fixture");
+        let original = File::open(&original_path).expect("bind journal fixture");
+        let error = inspect(
+            &original,
+            ImageSourceKind::Vhdx,
+            user,
+            &CancellationToken::new(),
+            u64::MAX,
+        )
+        .expect_err("read-only provider must refuse journal replay");
+        assert!(
+            error.to_string().contains("provider rejected the image"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read(&original_path).expect("unchanged source"),
+            output.stdout
+        );
+
+        // Repair only a disposable control copy, never the selected source.
+        // Success afterward proves the fixture is replayable, not simply corrupt.
+        let control_path = fixture.dir.join("replayed-control.vhdx");
+        std::fs::write(&control_path, &output.stdout).expect("write control copy");
+        let control = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&control_path)
+            .expect("open writable control");
+        if unsafe { libc::geteuid() } == 0 {
+            // SAFETY: control is a live descriptor for this test's private regular file.
+            assert_eq!(
+                unsafe { libc::fchown(control.as_raw_fd(), user.uid, user.gid) },
+                0
+            );
+        }
+        let mut repair = Command::new("/usr/bin/qemu-img");
+        repair
+            .args(["check", "-r", "all", "-f", "vhdx", "/proc/self/fd/0"])
+            .env_clear()
+            .stdin(Stdio::from(control))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        drop_decoder_privileges(&mut repair, user);
+        let repaired = repair.output().expect("repair disposable control copy");
+        assert!(
+            repaired.status.success(),
+            "{}",
+            String::from_utf8_lossy(&repaired.stderr)
+        );
+        assert_eq!(
+            inspect(
+                &File::open(&control_path).expect("bind replayed control"),
+                ImageSourceKind::Vhdx,
+                user,
+                &CancellationToken::new(),
+                u64::MAX,
+            )
+            .expect("replayed control must open"),
+            10 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            std::fs::read(&original_path).expect("original after control"),
+            output.stdout
+        );
     }
 }

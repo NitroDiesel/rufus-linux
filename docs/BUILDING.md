@@ -52,7 +52,7 @@ Distribution installers include the filesystem formatters below so the complete 
 Package names can change; verify them against the distribution release being targeted. A missing provider disables only its feature and displays the package/executable needed.
 
 The in-development virtual disk integration test additionally needs `qemu-utils
-libnbd-bin` on Debian/Ubuntu or `qemu-img libnbd` on Fedora/Arch. CI installs these
+libnbd-bin bzip2` on Debian/Ubuntu or `qemu-img libnbd bzip2` on Fedora/Arch. CI installs these
 test providers explicitly. On the continuation branch, host `qemu-nbd` and
 `nbdinfo` also enable optional read-only desktop capacity inspection; `nbdcopy`
 is not needed for that preview. They are not yet native runtime dependencies

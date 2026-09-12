@@ -31,13 +31,21 @@ a corrupt dynamic-VHD header signature, and corrupt checksums in both redundant
 VHDX headers. Byte comparisons verify inspection leaves each input unchanged.
 These are selected corruption fixtures, not exhaustive format validation or
 genuine parent-chain coverage.
+
+The provider integration also uses QEMU's pinned, replayable VHDX journal
+fixture. It verifies read-only inspection refuses the unreplayed log without
+changing the source bytes. A separate disposable control copy is repaired by
+an unprivileged `qemu-img` process and then reports the expected 10 GiB capacity.
+The original remains byte-for-byte unchanged. This tests a real journal case,
+not an invalid header disguised as a pending log. It does not authorize product
+repair or prove every journal state is rejected.
 Run it with:
 
 ```sh
 cargo test -p rufus-helper providers_roundtrip --locked -- --ignored
 ```
 
-This test requires QEMU and libnbd tools. CI explicitly installs and runs it on
+This test requires QEMU, libnbd tools, and test-only `bzip2`. CI runs it on
 Debian, Fedora, and Arch; it is ignored in the provider-independent test suite.
 Local file-only testing used QEMU 11.1.1 and libnbd 1.24.3. No physical USB or
 guest boot test has been performed for this backend.
@@ -132,8 +140,9 @@ reads separated by downstream work longer than the timeout.
 - Automate the isolated Btrfs and undersized-filesystem checks above, and test
   actual mid-copy filesystem exhaustion. Initial low-space refusal, reflink,
   and the copy fallback have local evidence.
-- Add genuine parent-dependent VHD/VHDX, 4Kn VHDX, and journal-replay fixtures
-  before claiming their documented rejection boundaries are verified end to end.
+- Add genuine parent-dependent VHD/VHDX and 4Kn VHDX fixtures before claiming
+  those rejection boundaries are verified end to end. One real unreplayed-log
+  fixture now verifies journal refusal and source preservation.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
 - Complete virtual-size destructive confirmation and native package dependencies.
@@ -222,6 +231,11 @@ Local screenshots are in ignored `target/ui-validation/`; they are evidence
 artifacts, not a dependency of the cloud-agent workflow.
 
 ## Primary references
+
+- [QEMU journal fixture provenance](https://github.com/qemu/qemu/commit/e78835b722eb26f5a56370166e99b69e9751ea2a),
+  pinned locally with its digest and license in `crates/rufus-helper/tests/fixtures/`.
+  The full provider suite passed as both the desktop user and root with dropped
+  provider privileges on 2026-09-12, alongside 80 regular workspace tests and Clippy.
 
 - [nbdcopy subprocess streaming](https://libguestfs.org/nbdcopy.1.html)
 - [libnbd socket activation and descriptor handling](https://github.com/libguestfs/libnbd/blob/master/generator/states-connect-socket-activation.c)
