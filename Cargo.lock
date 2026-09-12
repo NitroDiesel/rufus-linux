@@ -3329,6 +3329,7 @@ version = "0.1.2"
 name = "rufus-image"
 version = "0.1.2"
 dependencies = [
+ "libc",
  "md-5",
  "rufus-core",
  "sha1",
@@ -3344,6 +3345,7 @@ dependencies = [
  "libc",
  "pollster",
  "rufus-core",
+ "rufus-helper",
  "rufus-helper-protocol",
  "rufus-image",
  "rufus-linux-platform",

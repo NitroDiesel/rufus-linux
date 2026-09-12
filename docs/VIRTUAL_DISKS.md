@@ -136,9 +136,9 @@ reads separated by downstream work longer than the timeout.
   before claiming their documented rejection boundaries are verified end to end.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
-- Wire asynchronous desktop inspection and provider availability, truthful
-  virtual-size confirmation, and native package dependencies. Use the UI skill
-  and review/visual gates in `PROJECT_CONTEXT.md` for that change.
+- Complete virtual-size destructive confirmation and native package dependencies.
+  Read-only asynchronous desktop inspection is implemented below; it does not
+  satisfy the write-path UI gate.
 - Perform loop-backed and boot tests, then the disposable physical-media gate.
 - Update capability claims and release versions before publishing installers.
 
@@ -147,6 +147,60 @@ disk type 2 or 3. Parent-dependent VHD, legacy 511-byte footers, parent-dependen
 VHDX, 4Kn VHDX, and VHDX requiring journal replay are not supported by this path.
 Never repair the selected input automatically or fall back to copying container
 bytes when the provider rejects it.
+
+## Read-only desktop preview
+
+The desktop worker opens the selected file read-only with `O_NOFOLLOW` and
+`O_NONBLOCK`, then uses that descriptor for recognition and capacity inspection.
+It reuses `inspect_virtual_disk_for_user` from the helper library, which rejects
+root callers, non-regular files, writable descriptors, and path-only descriptors.
+The provider keeps the existing 15-second probe limit and process-group cleanup.
+The source inode is not protected against edits during this advisory preview.
+
+The summary distinguishes container file size from virtual disk size. Unknown
+capacity stays unknown, with a provider or parsing explanation. Configuration,
+checksums, and Start are disabled during inspection. Replacement cancels the old
+token; generation checks discard stale results. Closing requests cancellation
+and waits for completion. Blocking kernel filesystem I/O is not interruptible
+by this token, so a stalled filesystem can delay exit.
+
+The non-root desktop fixture creates VHD/VHDX containers, checks reported virtual
+capacity and unchanged source bytes, and confirms conversion remains blocked.
+State tests cover stale results, request refusal while inspecting, and shutdown
+cancellation. The shared image analyzer rejects named pipes without waiting for
+a writer. No preview test writes a block device.
+
+The provider cancellation fixture checks leader reaping and bounded stdout EOF,
+not immediate PGID disappearance. Killed descendants can briefly remain zombies
+until their new parent reaps them; that made the previous root CI assertion race.
+Production process signaling is unchanged.
+
+### Desktop verification and remaining UI checks
+
+Local checks on 2026-09-12 passed 80 provider-independent workspace tests,
+the non-root desktop preview fixture, the root-only preview rejection test,
+and both root-launched protected-source/provider fixtures. Formatting, Clippy
+with warnings denied, and the optimized workspace build passed.
+
+An isolated Xvfb/Openbox session exercised the native file chooser and displayed
+an 8 MiB VHDX container as a 16 MiB virtual disk. Light/dark layouts were checked
+at 560x720 and a maximized 1600x979 client size; 480x560 was also checked for
+scrolling and clipped controls. Fixed side gutters keep the workbench full-width
+on small windows and capped at 760 pixels when maximized.
+
+The modal checks found and fixed Tab escaping to background controls. Shared
+`ModalOverlay` now traps Tab/Backtab, handles Escape, and restores the safe
+button after a scrim click. Log and About were exercised with outside clicks,
+wheel input, repeated forward/backward Tab, Escape, and Space activation.
+Confirmation uses the same overlay with a two-button focus cycle; that cycle
+still needs a disposable-device UI smoke test before a release.
+
+The isolated X11 session intermittently rendered the initial frame shifted
+upward until a one-pixel resize. The settled-size checks above passed, but this
+startup-rendering issue is not diagnosed or claimed fixed. Recheck it on a
+normal X11/Wayland desktop before the next installer release. Local screenshots
+are in ignored `target/ui-validation/`; they are evidence artifacts, not a
+dependency of the cloud-agent workflow.
 
 ## Primary references
 

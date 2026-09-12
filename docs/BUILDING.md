@@ -35,8 +35,12 @@ Package names can change; verify them against the distribution release being tar
 
 The in-development virtual disk integration test additionally needs `qemu-utils
 libnbd-bin` on Debian/Ubuntu or `qemu-img libnbd` on Fedora/Arch. CI installs these
-test providers explicitly. They are not yet native runtime dependencies and
-their presence does not enable VHD/VHDX conversion. See
+test providers explicitly. On the continuation branch, host `qemu-nbd` and
+`nbdinfo` also enable optional read-only desktop capacity inspection; `nbdcopy`
+is not needed for that preview. They are not yet native runtime dependencies
+and their presence does not enable VHD/VHDX conversion. Run the desktop preview
+test as a non-root user with `cargo test -p rufus-linux desktop_virtual_preview
+--locked -- --ignored`. See
 [`VIRTUAL_DISKS.md`](VIRTUAL_DISKS.md) for the remaining gates.
 
 ## Packaging metadata

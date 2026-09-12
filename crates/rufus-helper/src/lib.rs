@@ -49,6 +49,42 @@ pub enum HelperError {
     MissingTool(String),
 }
 
+/// Inspect virtual capacity in an unprivileged desktop process.
+///
+/// This preview is advisory: a read-only descriptor does not prevent another
+/// process from changing its inode. Execution must protect and inspect the
+/// source again before preparing the target. The descriptor's offset may move.
+pub fn inspect_virtual_disk_for_user(
+    source: &File,
+    kind: rufus_core::plan::ImageSourceKind,
+    cancel: &CancellationToken,
+) -> Result<u64, HelperError> {
+    check_cancel(cancel)?;
+    if !source.metadata()?.is_file() {
+        return Err(HelperError::Operation(
+            "virtual disk inspection requires a regular file".into(),
+        ));
+    }
+    // SAFETY: F_GETFL reads the flags of the live borrowed descriptor.
+    let flags = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    if flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_PATH != 0 {
+        return Err(HelperError::Operation(
+            "virtual disk inspection requires a readable, read-only descriptor".into(),
+        ));
+    }
+    let uid = unsafe { libc::geteuid() };
+    if uid == 0 {
+        return Err(HelperError::Operation(
+            "desktop image inspection must run as a non-root user".into(),
+        ));
+    }
+    let user = InvokingUser::from_uid(uid)?;
+    virtual_disk::inspect(source, kind, &user, cancel, u64::MAX)
+}
+
 /// Fixed absolute paths for formatters. Never taken from the environment.
 pub mod tools {
     pub const PARTED: &[&str] = &["/usr/sbin/parted", "/usr/bin/parted", "/sbin/parted"];
@@ -1814,6 +1850,56 @@ mod tests {
     };
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn desktop_virtual_inspection_rejects_unsuitable_descriptors() {
+        let cancel = CancellationToken::new();
+        let directory = File::open(std::env::temp_dir()).expect("directory fixture");
+        let error = inspect_virtual_disk_for_user(&directory, ImageSourceKind::Vhdx, &cancel)
+            .expect_err("reject directory")
+            .to_string();
+        assert!(error.contains("requires a regular file"), "{error}");
+
+        let writable = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_TMPFILE)
+            .mode(0o600)
+            .open(std::env::temp_dir())
+            .expect("anonymous writable fixture");
+        let path_only = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_PATH)
+            .open(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+            .expect("path-only fixture");
+        for source in [&writable, &path_only] {
+            let error = inspect_virtual_disk_for_user(source, ImageSourceKind::Vhdx, &cancel)
+                .expect_err("reject unusable descriptor")
+                .to_string();
+            assert!(error.contains("readable, read-only descriptor"), "{error}");
+        }
+    }
+
+    #[test]
+    fn desktop_virtual_inspection_checks_identity_kind_and_cancellation() {
+        let source = File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+            .expect("read-only regular fixture");
+        let cancel = CancellationToken::new();
+        let error = inspect_virtual_disk_for_user(&source, ImageSourceKind::Raw, &cancel)
+            .expect_err("root and non-virtual kinds must not launch providers")
+            .to_string();
+        let expected = if unsafe { libc::geteuid() } == 0 {
+            "must run as a non-root user"
+        } else {
+            "not a virtual disk"
+        };
+        assert!(error.contains(expected), "{error}");
+        cancel.request();
+        assert!(matches!(
+            inspect_virtual_disk_for_user(&source, ImageSourceKind::Vhdx, &cancel),
+            Err(HelperError::Cancelled)
+        ));
+    }
 
     fn format_request() -> HelperRequest {
         HelperRequest {

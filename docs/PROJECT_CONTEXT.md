@@ -180,6 +180,18 @@ inactivity deadline, shared write-error cleanup, and the remaining
 fault-injection, UI, packaging, and boot gates. Production VHD/VHDX entry points
 remain blocked.
 
+The continuation branch runs image inspection off the UI thread and
+uses the helper library's non-root, read-only inspection API for optional
+VHD/VHDX capacity previews. Configuration and Start stay disabled during the
+probe; generation checks discard stale results. Closing requests cancellation
+and waits for worker cleanup. Read `VIRTUAL_DISKS.md` for limits and current
+verification evidence. This work is not in the 0.1.2 release assets.
+
+That integration also fixes workbench sizing and adds explicit modal keyboard
+focus trapping. Settled-size light/dark and Log/About checks passed locally;
+the isolated X11 startup-paint issue and physical confirmation smoke test remain
+open in `VIRTUAL_DISKS.md`.
+
 These are known follow-ups, not claims that the current release is broken:
 
 - Run a packaged, real-polkit smoke test on disposable physical USB media for
@@ -202,6 +214,19 @@ These are known follow-ups, not claims that the current release is broken:
 - The AppImage compatibility claim is x86_64 glibc 2.28+ desktop Linux with a
   FUSE extraction fallback. Alpine/musl, NixOS/non-FHS layouts, headless hosts,
   and systems without polkit are not covered by a universal “any distro” claim.
+
+## Repository administration follow-ups
+
+Repository administration still has two owner requests awaiting resolution:
+
+- Remove the old `chatgpt-codex-connector[bot]` contributor credit. Two published
+  merge commits contain its co-author trailer, `a79ab63` and `a377ceb`.
+  Removing a commit-derived credit may require rewriting published history;
+  no such rewrite has been performed. Agree on the exact migration and release
+  provenance impact with the owner before changing those commits.
+- Add repository tags/topics from two screenshots whose files are unavailable.
+  The exact names have been requested but not supplied. Preserve this as an
+  input gap rather than guessing tags.
 
 ## Build, test, and release gates
 

@@ -28,6 +28,8 @@ jobs:
         run: cargo test --workspace --locked
       - name: Virtual disk provider integration
         run: cargo test -p rufus-helper providers_roundtrip --locked -- --ignored
+      - name: Unprivileged desktop image inspection
+        run: cargo test -p rufus-linux desktop_virtual_preview --locked -- --ignored
       - name: Protected source integration (regular files only)
         shell: bash
         run: |

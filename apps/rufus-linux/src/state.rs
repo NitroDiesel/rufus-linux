@@ -8,7 +8,7 @@ use rufus_core::plan::{
     build_steps, BootMode, FileSystem, ImageSource, ImageSourceKind, OperationPlan, PartitionPlan,
     PartitionScheme, PlanError, VerificationLevel, WriteMode,
 };
-use rufus_core::progress::{JobId, ProgressStage};
+use rufus_core::progress::{CancellationToken, JobId, ProgressStage};
 use rufus_core::safety::{confirmation_message, SafetyPolicy, SafetySnapshot};
 use rufus_helper_protocol::{
     FormatSpec, HelperEvent, HelperOperation, HelperRequest, HelperResult, SourceSpec,
@@ -53,6 +53,10 @@ pub struct AppState {
     pub image_report: Option<ImageReport>,
     pub image_summary: String,
     pub image_notes: String,
+    pub image_inspecting: bool,
+    pub close_after_inspection: bool,
+    image_generation: u64,
+    image_cancel: Option<CancellationToken>,
     pub partition_scheme_label: String,
     pub target_system_label: String,
     pub filesystem_label: String,
@@ -91,6 +95,10 @@ impl AppState {
             image_report: None,
             image_summary: "No image selected".into(),
             image_notes: String::new(),
+            image_inspecting: false,
+            close_after_inspection: false,
+            image_generation: 0,
+            image_cancel: None,
             partition_scheme_label: "GPT".into(),
             target_system_label: "UEFI (non CSM)".into(),
             filesystem_label: "FAT32".into(),
@@ -186,14 +194,55 @@ impl AppState {
         self.recompute();
     }
 
-    pub fn set_image(&mut self, path: PathBuf) {
-        match rufus_image::analyze(&path) {
+    pub fn begin_image_inspection(&mut self, path: PathBuf) -> Option<(u64, CancellationToken)> {
+        if self.is_busy || self.close_after_inspection {
+            return None;
+        }
+        self.cancel_image_inspection();
+        self.image_generation = self.image_generation.wrapping_add(1);
+        let cancel = CancellationToken::new();
+        self.image_cancel = Some(cancel.clone());
+        self.image_inspecting = true;
+        self.image_path = Some(path);
+        self.image_report = None;
+        self.image_summary = "Inspecting image…".into();
+        self.image_notes.clear();
+        self.recompute();
+        Some((self.image_generation, cancel))
+    }
+
+    pub fn cancel_image_inspection(&self) {
+        if let Some(cancel) = &self.image_cancel {
+            cancel.request();
+        }
+    }
+
+    pub fn finish_image_inspection(
+        &mut self,
+        generation: u64,
+        result: Result<ImageReport, rufus_image::ImageError>,
+    ) -> bool {
+        if generation != self.image_generation || !self.image_inspecting {
+            return false;
+        }
+        self.image_inspecting = false;
+        self.image_cancel = None;
+        match result {
             Ok(report) => {
-                self.image_summary = format!(
-                    "{} · {}",
-                    report.display_kind(),
-                    rufus_image::format_size(report.size_bytes)
-                );
+                self.image_summary = if let Some(expanded) = report.decompressed_size_bytes {
+                    format!(
+                        "{} · {} file · {} disk",
+                        report.display_kind(),
+                        rufus_image::format_size(report.size_bytes),
+                        rufus_image::format_size(expanded)
+                    )
+                } else {
+                    format!(
+                        "{} · {}",
+                        report.display_kind(),
+                        rufus_image::format_size(report.size_bytes)
+                    )
+                };
                 self.image_notes = report.notes.join(" ");
                 if let Some(fs) = report.preferred_filesystem {
                     if self.filesystem_available(fs.as_str()) {
@@ -210,8 +259,8 @@ impl AppState {
                         self.persistence_max_gb = free.max(0.0);
                     }
                 }
+                self.image_path = Some(report.path.clone());
                 self.image_report = Some(report);
-                self.image_path = Some(path);
                 self.push_log(format!("Image: {}", self.image_summary));
             }
             Err(e) => {
@@ -223,6 +272,15 @@ impl AppState {
             }
         }
         self.recompute();
+        true
+    }
+
+    #[cfg(test)]
+    pub fn set_image(&mut self, path: PathBuf) {
+        let (generation, _) = self
+            .begin_image_inspection(path.clone())
+            .expect("begin image test");
+        self.finish_image_inspection(generation, rufus_image::analyze(&path));
     }
 
     pub fn available_filesystems(&self) -> Vec<String> {
@@ -303,6 +361,9 @@ impl AppState {
     }
 
     fn operation_unavailable_reason(&self) -> Option<String> {
+        if self.image_inspecting {
+            return Some("Wait for image inspection to finish.".into());
+        }
         let filesystem_name = self.filesystem_label.replace(" (unavailable)", "");
         let filesystem_capability = match filesystem_name.as_str() {
             "FAT" => Capability::FormatFat,
@@ -379,6 +440,9 @@ impl AppState {
     }
 
     pub fn build_confirm(&self) -> Result<String, String> {
+        if self.image_inspecting {
+            return Err("Wait for image inspection to finish.".into());
+        }
         let dev = self.selected().ok_or("No device selected")?;
         let policy = SafetyPolicy {
             show_fixed_disks: self.list_fixed_disks,
@@ -753,6 +817,66 @@ mod tests {
         st.recompute();
         let plan = st.build_plan().expect("plan");
         assert_eq!(plan.write_mode, WriteMode::FormatOnly);
+    }
+
+    #[test]
+    fn image_inspection_blocks_requests_and_ignores_stale_results() {
+        let mut st = AppState::new();
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+        let (first, cancelled) = st
+            .begin_image_inspection("first.img".into())
+            .expect("first request");
+        assert!(st.image_report.is_none());
+        assert!(!st.can_start);
+        assert!(st
+            .build_confirm()
+            .expect_err("inspection confirmation guard")
+            .contains("inspection"));
+        st.boot_selection = BootSelection::NonBootable;
+        assert!(st
+            .build_helper_request()
+            .expect_err("inspection request guard")
+            .contains("inspection"));
+        let (second, _) = st
+            .begin_image_inspection("second.img".into())
+            .expect("replacement request");
+        assert!(cancelled.is_requested());
+        assert!(!st.finish_image_inspection(
+            first,
+            Err(rufus_image::ImageError::Unsupported("stale".into()))
+        ));
+        assert!(st.image_inspecting);
+        assert_eq!(
+            st.image_path.as_deref(),
+            Some(std::path::Path::new("second.img"))
+        );
+        assert!(st.finish_image_inspection(
+            second,
+            Err(rufus_image::ImageError::Unsupported("current error".into()))
+        ));
+        assert!(!st.image_inspecting);
+        assert!(st.image_report.is_none());
+        assert!(st.image_path.is_none());
+        assert_eq!(
+            st.image_notes,
+            "unsupported or unreadable image: current error"
+        );
+    }
+
+    #[test]
+    fn image_inspection_respects_active_operations_and_shutdown() {
+        let mut st = AppState::new();
+        st.is_busy = true;
+        assert!(st.begin_image_inspection("ignored.img".into()).is_none());
+        st.is_busy = false;
+        let (_, cancel) = st
+            .begin_image_inspection("image.img".into())
+            .expect("inspection request");
+        st.close_after_inspection = true;
+        st.cancel_image_inspection();
+        assert!(cancel.is_requested());
+        assert!(st.begin_image_inspection("ignored.img".into()).is_none());
     }
 
     #[test]
