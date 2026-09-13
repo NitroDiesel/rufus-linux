@@ -125,24 +125,27 @@ These injected tests do not fill a filesystem or prove the reflink path.
 
 ### Isolated filesystem evidence
 
-Manual checks on 2026-09-11 used source commit `9bd9fc7`, kernel
-`7.2.3-1-cachyos`, and btrfs-progs 7.1. Both ran through
-`unshare --mount --propagation private`, so temporary mounts did not replace
-host mounts outside the test process:
+`scripts/ci/snapshot-filesystems.sh` automates the initial low-space and Btrfs
+checks previously performed manually. It creates a private mount namespace,
+then overlays `/var/tmp` only inside that namespace:
 
-- A 4 MiB tmpfs at `/var/tmp` caused the protected-snapshot success fixture to
-  exit 101 with the expected "not enough space" error and 256 MiB headroom
-  explanation. This proves initial refusal on a genuinely undersized
-  filesystem, not mid-copy ENOSPC handling.
-- A 512 MiB Btrfs image stored on a private 1 GiB tmpfs exercised copy-on-write.
-  The protected-snapshot test passed; `strace` observed
-  `ioctl(5, BTRFS_IOC_CLONE or FICLONE, 3) = 0`. The same test confirmed the copy
-  stayed unchanged after original-inode edits and denied the decoder write
-  access.
+- A 4 MiB tmpfs must make the protected-snapshot fixture fail with the expected
+  low-space explanation. A different error or unexpected success fails the check.
+- A new 512 MiB Btrfs image on a bounded 768 MiB tmpfs must pass the protected
+  snapshot fixture. A raw `strace` check requires a successful `FICLONE` ioctl,
+  so a copy fallback cannot pass as reflink evidence. The existing fixture also
+  checks unchanged snapshot bytes after source edits and denied decoder writes.
 
-The namespace exited, the temporary image was released, and host mount/loop
-checks found no remaining test mounts or loop device. These checks are not yet
-automated in CI and do not replace physical-media or mid-copy ENOSPC testing.
+```sh
+sudo bash scripts/ci/snapshot-filesystems.sh target/debug/deps/rufus_helper-<test-hash>
+```
+
+This requires `btrfs-progs`, `strace`, mount namespace support, and Btrfs kernel
+support. It uses only a newly created loop-backed file, never a physical device.
+CI invokes it explicitly. On 2026-09-13 both checks passed locally; afterward
+the host had no test mounts, loop devices, or scratch directories, and its
+`/var/tmp` still resolved to the original ext4 filesystem. These tests do not
+replace power-loss, quota, or physical-media testing.
 
 ### Real mid-copy space exhaustion
 
@@ -205,9 +208,9 @@ reads separated by downstream work longer than the timeout.
 
 ## Remaining gates and provider limits
 
-- Automate the isolated Btrfs and initial undersized-filesystem checks above.
-  Actual mid-copy tmpfs exhaustion now has an isolated regression; initial
-  low-space refusal and reflink still have manual local evidence.
+- Require the isolated filesystem scripts above to pass on the exact CI head.
+  Btrfs reflink, initial low-space refusal, and actual mid-copy tmpfs exhaustion
+  now have repeatable local checks and explicit CI invocations.
 - Cross-check Hyper-V-created parent chains and 4Kn media before extending
   those capabilities. Writer-generated VHD/VHDX chains, fixed/dynamic 4Kn
   metadata, and a real unreplayed-log fixture now verify the current refusal

@@ -24,7 +24,7 @@ jobs:
             desktop-file-utils appstream libxml2-utils parted dosfstools qemu-utils libnbd-bin bzip2 \
             xvfb xauth xdotool imagemagick libgl1-mesa-dri \
             libxkbcommon-x11-0 libxcursor1 libx11-xcb1 libxi6 \
-            libwayland-client0 libwayland-egl1 libgl1 libegl1
+            libwayland-client0 libwayland-egl1 libgl1 libegl1 btrfs-progs strace
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test
@@ -42,6 +42,7 @@ jobs:
               sudo -- "$binary" --exact source_snapshot::tests::protected_snapshot_is_stable_and_read_only --ignored
               sudo -- "$binary" --exact virtual_disk::tests::providers_roundtrip_bound_sources_and_reject_oversized_targets --ignored
               sudo -- bash scripts/ci/snapshot-enospc.sh "$binary"
+              sudo -- bash scripts/ci/snapshot-filesystems.sh "$binary"
               tested=$((tested + 1))
             fi
           done

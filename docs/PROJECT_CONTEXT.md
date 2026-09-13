@@ -191,7 +191,8 @@ footer, including ambiguous legacy CHS images. See `VIRTUAL_DISKS.md` before
 changing that policy; accepting the smaller size could omit image data.
 
 The snapshot copy routine also has an isolated real-ENOSPC regression using a
-bounded private tmpfs. Read `VIRTUAL_DISKS.md` for its invocation and limits;
+bounded private tmpfs. A second script verifies initial low-space refusal and
+Btrfs reflink snapshots. Read `VIRTUAL_DISKS.md` for their invocations and limits;
 running all ignored tests directly does not provide the required mount setup.
 
 The continuation branch runs image inspection off the UI thread and
