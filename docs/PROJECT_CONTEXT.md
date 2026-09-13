@@ -185,6 +185,11 @@ parent-chain generator is documented under `scripts/fixtures/parent-chains/`;
 its .NET dependencies are not needed by Rufus or normal CI. Production VHD/VHDX
 entry points remain blocked.
 
+Cross-distribution tests found that QEMU versions disagree on DiscUtils VHD
+capacity. The backend now refuses any VHD export that differs from the validated
+footer, including ambiguous legacy CHS images. See `VIRTUAL_DISKS.md` before
+changing that policy; accepting the smaller size could omit image data.
+
 The continuation branch runs image inspection off the UI thread and
 uses the helper library's non-root, read-only inspection API for optional
 VHD/VHDX capacity previews. Configuration and Start stay disabled during the

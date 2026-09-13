@@ -92,7 +92,7 @@ fn command(
 
 // QEMU's VPC reader does not implement parent chains. Validate the header it
 // will use before launching it, rather than trusting a successful export.
-fn validate_vhd(source: &File) -> Result<(), HelperError> {
+fn validate_vhd(source: &File) -> Result<u64, HelperError> {
     let mut footer = [0u8; 512];
     source.read_exact_at(&mut footer, 0)?;
     if &footer[..8] != b"conectix" {
@@ -119,7 +119,13 @@ fn validate_vhd(source: &File) -> Result<(), HelperError> {
             "only standalone fixed or dynamic VHDs are supported; parent-dependent VHDs are rejected".into(),
         ));
     }
-    Ok(())
+    let size = u64::from_be_bytes(footer[48..56].try_into().expect("eight bytes"));
+    if size == 0 || size % 512 != 0 {
+        return Err(HelperError::Operation(
+            "VHD footer capacity is zero or unaligned".into(),
+        ));
+    }
+    Ok(size)
 }
 
 pub(super) fn inspect(
@@ -130,9 +136,11 @@ pub(super) fn inspect(
     capacity: u64,
 ) -> Result<u64, HelperError> {
     check_cancel(cancel)?;
-    if kind == ImageSourceKind::Vhd {
-        validate_vhd(source)?;
-    }
+    let declared_size = if kind == ImageSourceKind::Vhd {
+        Some(validate_vhd(source)?)
+    } else {
+        None
+    };
     let mut command = command(source, kind, user, true)?;
     let output = read_size_output(&mut command, cancel, Duration::from_secs(15))?;
     let size = std::str::from_utf8(&output)
@@ -141,10 +149,25 @@ pub(super) fn inspect(
         .filter(|text| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
         .and_then(|text| text.parse::<u64>().ok())
         .ok_or_else(|| HelperError::Operation("invalid virtual disk size from provider".into()))?;
+    validate_export_size(size, declared_size, capacity)
+}
+
+fn validate_export_size(
+    size: u64,
+    declared_size: Option<u64>,
+    capacity: u64,
+) -> Result<u64, HelperError> {
     if size == 0 || size % 512 != 0 || size > capacity {
         return Err(HelperError::Operation(
             "virtual disk size is zero, unaligned, or exceeds target capacity".into(),
         ));
+    }
+    if let Some(declared) = declared_size {
+        if size != declared {
+            return Err(HelperError::Operation(format!(
+                "VHD provider capacity ({size} bytes) differs from the footer ({declared} bytes); refusing ambiguous geometry"
+            )));
+        }
     }
     Ok(size)
 }
@@ -255,6 +278,7 @@ mod tests {
         let mut footer = [0u8; 512];
         footer[..8].copy_from_slice(b"conectix");
         footer[12..16].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        footer[48..56].copy_from_slice(&4096u64.to_be_bytes());
         footer[60..64].copy_from_slice(&kind.to_be_bytes());
         let checksum = !footer.iter().map(|byte| u32::from(*byte)).sum::<u32>();
         footer[64..68].copy_from_slice(&checksum.to_be_bytes());
@@ -281,6 +305,32 @@ mod tests {
         fixed.pop();
         std::fs::write(&path, fixed).expect("write legacy footer");
         assert!(validate_vhd(&File::open(&path).expect("open fixture")).is_err());
+        for size in [0u64, 513] {
+            let mut invalid = footer(3);
+            invalid[48..56].copy_from_slice(&size.to_be_bytes());
+            invalid[64..68].fill(0);
+            let checksum = !invalid.iter().map(|byte| u32::from(*byte)).sum::<u32>();
+            invalid[64..68].copy_from_slice(&checksum.to_be_bytes());
+            std::fs::write(&path, invalid).expect("write invalid capacity");
+            let error = validate_vhd(&File::open(&path).expect("open fixture"))
+                .expect_err("invalid declared capacity");
+            assert!(error.to_string().contains("capacity is zero or unaligned"));
+        }
+    }
+
+    #[test]
+    fn vhd_export_must_match_declared_capacity() {
+        let declared = 1024 * 1024 * 1024;
+        for size in [1_073_479_680, declared + 512] {
+            let error = validate_export_size(size, Some(declared), u64::MAX)
+                .expect_err("geometry mismatch must not become an export size");
+            assert!(error.to_string().contains("refusing ambiguous geometry"));
+        }
+        assert_eq!(
+            validate_export_size(declared, Some(declared), declared).expect("matching capacity"),
+            declared
+        );
+        assert!(validate_export_size(declared, Some(declared), declared - 512).is_err());
     }
 
     #[test]
@@ -653,10 +703,57 @@ mod tests {
             let source = File::open(&path).expect("bind parent-chain fixture");
             let result = inspect(&source, kind, user, &CancellationToken::new(), u64::MAX);
             if parent {
-                assert_eq!(
-                    result.expect("standalone parent must open"),
-                    1024 * 1024 * 1024
-                );
+                if kind == ImageSourceKind::Vhd {
+                    // Older QEMU treats DiscUtils' creator as CHS-sized. Refuse
+                    // that export, rather than silently omitting its final 256 KiB.
+                    let mut probe = command(&source, kind, user, true).expect("raw size probe");
+                    let size = read_size_output(
+                        &mut probe,
+                        &CancellationToken::new(),
+                        Duration::from_secs(15),
+                    )
+                    .expect("standalone VHD provider must open");
+                    match size.as_slice() {
+                        b"1073741824\n" => {
+                            assert_eq!(result.expect("full-capacity export"), 1_073_741_824)
+                        }
+                        b"1073479680\n" => assert!(result
+                            .expect_err("CHS mismatch must be refused")
+                            .to_string()
+                            .contains("refusing ambiguous geometry")),
+                        _ => panic!("unexpected VHD provider capacity: {size:?}"),
+                    }
+                    let mut legacy = bytes.clone();
+                    for offset in [0, legacy.len() - 512] {
+                        let footer = &mut legacy[offset..offset + 512];
+                        assert_eq!(&footer[..8], b"conectix");
+                        footer[28..32].copy_from_slice(b"vpc ");
+                        footer[64..68].fill(0);
+                        let checksum = !footer.iter().map(|byte| u32::from(*byte)).sum::<u32>();
+                        footer[64..68].copy_from_slice(&checksum.to_be_bytes());
+                    }
+                    let legacy_path = fixture.dir.join("legacy-chs.vhd");
+                    std::fs::write(&legacy_path, &legacy).expect("write legacy geometry control");
+                    let legacy_source = File::open(&legacy_path).expect("bind legacy control");
+                    let error = inspect(
+                        &legacy_source,
+                        kind,
+                        user,
+                        &CancellationToken::new(),
+                        u64::MAX,
+                    )
+                    .expect_err("legacy CHS export must be refused on all providers");
+                    assert!(error.to_string().contains("refusing ambiguous geometry"));
+                    assert_eq!(
+                        std::fs::read(legacy_path).expect("unchanged legacy control"),
+                        legacy
+                    );
+                } else {
+                    assert_eq!(
+                        result.expect("standalone VHDX parent must open"),
+                        1_073_741_824
+                    );
+                }
             } else {
                 let error = result.expect_err("parent-dependent child must be refused");
                 let expected = if kind == ImageSourceKind::Vhd {

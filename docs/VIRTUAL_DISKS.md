@@ -35,8 +35,9 @@ genuine parent-chain coverage.
 Separate pinned VHD/VHDX parent-child pairs now come from LTRData DiscUtils
 1.0.88. The optional generator verifies inherited and overridden synthetic
 bytes by reopening each child through its parent chain. The Rust integration
-opens both standalone parents at 1 GiB, refuses both children, and verifies all
-four source files remain unchanged after the probes. The writer, source commit,
+opens the standalone VHDX parent at 1 GiB, checks the VHD parent against its
+declared capacity, refuses both children, and verifies all four source files
+remain unchanged after the probes. The writer, source commit,
 package hashes, generation limits, and regeneration instructions live in
 `scripts/fixtures/parent-chains/README.md`. The compressed fixtures total about
 2 KiB and add nothing to the installed application.
@@ -45,6 +46,22 @@ On 2026-09-12, the expanded provider suite passed as both the desktop user and
 root with dropped provider privileges. The 80 regular workspace tests and
 Clippy with warnings denied also passed. These file-only checks do not open
 physical target devices.
+
+Cross-distribution CI then exposed a VHD size ambiguity. QEMU versions used by
+Ubuntu, Debian, and Fedora reported this DiscUtils fixture's CHS geometry as
+1,073,479,680 bytes, while newer QEMU used its 1,073,741,824-byte footer capacity.
+Inspection now requires the export to equal the validated footer capacity,
+rejecting a mismatch before target preparation. It does not force a different
+QEMU size policy or repair the source. Valid legacy VPC images can therefore be
+unsupported when their footer and CHS export differ. A checksummed `vpc ` creator
+control tests rejection on newer providers too. Both native inspection and the
+private conversion path use this guard; VHD/VHDX writing stays blocked.
+
+Local verification on 2026-09-13 passed 81 regular workspace tests, the expanded
+provider fixture as both the desktop user and root with dropped privileges,
+Clippy with warnings denied, formatting, and the optimized workspace build.
+Cross-distribution checks must pass on the commit containing this guard before
+merging; the earlier run failed on the newly exposed geometry difference.
 
 Two additional copies exercise 4K logical/physical sectors. The test follows
 the generated fixed/dynamic VHDX metadata tables and changes both sector-size
@@ -175,7 +192,8 @@ reads separated by downstream work longer than the timeout.
 - Update capability claims and release versions before publishing installers.
 
 The VHD guard currently requires a checksummed, version 1, 512-byte footer and
-disk type 2 or 3. Parent-dependent VHD, legacy 511-byte footers, parent-dependent
+disk type 2 or 3, with an aligned nonzero capacity matching the provider export.
+Parent-dependent VHD, legacy 511-byte footers, ambiguous CHS sizes, parent-dependent
 VHDX, 4Kn VHDX, and VHDX requiring journal replay are not supported by this path.
 Never repair the selected input automatically or fall back to copying container
 bytes when the provider rejects it.
@@ -254,6 +272,10 @@ Local screenshots are in ignored `target/ui-validation/`; they are evidence
 artifacts, not a dependency of the cloud-agent workflow.
 
 ## Primary references
+
+- [QEMU 8.2 VHD size policy](https://github.com/qemu/qemu/blob/v8.2.0/block/vpc.c)
+  and [QEMU 10 VHD size policy](https://github.com/qemu/qemu/blob/v10.0.0/block/vpc.c)
+  explain the version-dependent choice between CHS geometry and footer capacity.
 
 - [VHDX logical-sector requirements](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-vhdx/e45dcf18-f45b-4507-8760-e76fa538a61b).
   Fixture table GUIDs and layout also follow the

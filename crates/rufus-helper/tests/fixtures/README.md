@@ -12,10 +12,15 @@ files total 2,139 bytes; each virtual disk is 1 GiB.
 The generator reopened the complete chains and verified inherited/overridden
 bytes in the first 8 MiB, capacity, and the last byte. The decoded first-8-MiB
 SHA-256 is `0b81cb3cb154a0814cb893e7ca730654728090c05abd4f95cfaed4223d4976c0`.
-The Rust test pins each compressed digest, confirms both standalone parents
-open, rejects both parent-dependent children, and compares all four source
+The Rust test pins each compressed digest, checks the standalone parents,
+rejects both parent-dependent children, and compares all four source
 files after inspection. These are real writer-generated dependencies, but not
 Hyper-V-created media or proof that every possible parent-chain layout is safe.
+
+Older QEMU versions expose the VHD parent's smaller CHS capacity. Rufus refuses
+that mismatch; newer QEMU reports the full 1 GiB. A separate checksummed copy
+with a `vpc ` creator exercises the same refusal on newer QEMU. The original
+fixture bytes remain unchanged. See `docs/VIRTUAL_DISKS.md` for the size policy.
 
 ## VHDX journal
 
