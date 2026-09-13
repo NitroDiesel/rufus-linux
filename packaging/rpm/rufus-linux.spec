@@ -10,6 +10,8 @@ BuildRequires:  cargo rust pkgconf fontconfig-devel freetype-devel
 BuildRequires:  libxkbcommon-devel wayland-devel libX11-devel libxcb-devel
 BuildRequires:  systemd-rpm-macros
 Requires:       polkit util-linux parted dosfstools exfatprogs ntfsprogs e2fsprogs udftools
+Requires:       libxkbcommon-x11 libXcursor libX11-xcb libXi
+Requires:       wayland-libs libglvnd-glx libglvnd-egl
 Recommends:     libarchive xz bzip2 zstd
 
 %description

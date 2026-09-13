@@ -21,17 +21,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype-dev \
             libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
-            desktop-file-utils appstream libxml2-utils parted dosfstools
+            desktop-file-utils appstream libxml2-utils parted dosfstools qemu-utils libnbd-bin bzip2 \
+            xvfb xauth xdotool imagemagick libgl1-mesa-dri \
+            libxkbcommon-x11-0 libxcursor1 libx11-xcb1 libxi6 \
+            libwayland-client0 libwayland-egl1 libgl1 libegl1
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test
         run: cargo test --workspace --locked
+      - name: Virtual disk provider integration
+        run: cargo test -p rufus-helper providers_roundtrip --locked -- --ignored
+      - name: Unprivileged desktop image inspection
+        run: cargo test -p rufus-linux desktop_virtual_preview --locked -- --ignored
+      - name: Protected source integration (regular files only)
+        shell: bash
+        run: |
+          tested=0
+          for binary in target/debug/deps/rufus_helper-*; do
+            if [[ -f "$binary" && -x "$binary" ]]; then
+              sudo -- "$binary" --ignored
+              tested=$((tested + 1))
+            fi
+          done
+          test "$tested" -gt 0
       - name: Lint libraries
         run: cargo clippy --workspace --all-targets --exclude rufus-linux --locked -- -D warnings
       - name: Lint desktop
         run: cargo clippy -p rufus-linux --all-targets --locked -- -D warnings
       - name: Release build
         run: cargo build --workspace --release --locked
+      - name: Desktop startup rendering
+        run: >-
+          timeout 90s xvfb-run -a -s '-screen 0 2200x1800x24'
+          dbus-run-session bash scripts/ci/desktop-render.sh
+          target/release/rufus-linux target/ui-validation/ci
       - name: Desktop metadata
         run: |
           desktop-file-validate packaging/desktop/io.github.nitrodiesel.rufus-linux.desktop

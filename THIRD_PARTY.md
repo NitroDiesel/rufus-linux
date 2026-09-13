@@ -14,6 +14,18 @@ courtesy of PC Unleashed. See `assets/icons/LICENSE.txt`. This independent
 port's non-endorsement notice remains prominent in the README, AppStream
 description, and application About text.
 
+## Test fixtures
+
+The helper's test-only VHDX journal fixture comes from QEMU iotest 070,
+Copyright 2013 Red Hat, Inc., GPL-2.0-or-later. Its exact source, digest, and
+license are recorded in `crates/rufus-helper/tests/fixtures/README.md` and
+`COPYING.QEMU` in that directory. It is not included in installed binaries.
+
+The parent-chain fixtures in the same directory contain project-generated
+synthetic bytes. Their optional generator uses the MIT-licensed LTRData
+DiscUtils writer, pinned with dependency hashes and source provenance under
+`scripts/fixtures/parent-chains/`. No .NET or DiscUtils binary is shipped in Rufus.
+
 ## Expected system dependencies
 
 These tools and libraries are intended to remain system dependencies rather than copied into this repository:

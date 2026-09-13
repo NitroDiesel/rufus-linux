@@ -2,7 +2,7 @@
 import { ScrollView, CheckBox, Slider, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import {
-    WorkbenchButton, ToolButton, StatusBadge, SectionHeader,
+    WorkbenchButton, ToolButton, StatusBadge, SectionHeader, ModalOverlay,
     LabeledComboBox, LabeledLineEdit, TargetPlate, WriteTrack, HelperLabel, FieldLabel
 } from "components.slint";
 
@@ -34,6 +34,9 @@ export component AppWindow inherits Window {
     in-out property <string> image-path: "";
     in-out property <string> image-summary: "No image selected";
     in-out property <string> image-notes: "";
+    in-out property <bool> image-inspecting: false;
+    property <bool> modal-open: root.show-confirm || root.show-log || root.show-about;
+    property <bool> can-configure: !root.is-busy && !root.image-inspecting && !root.modal-open;
 
     in-out property <[string]> partition-choices;
     in-out property <string> partition-scheme: "GPT";
@@ -98,9 +101,9 @@ export component AppWindow inherits Window {
     callback close-clicked();
 
     HorizontalLayout {
-        Rectangle { horizontal-stretch: 1; }
+        Rectangle { width: max(0px, (root.width - 760px) / 2); }
         VerticalLayout {
-            max-width: 760px;
+            horizontal-stretch: 1;
             padding: Theme.space-4;
             spacing: Theme.space-3;
 
@@ -110,14 +113,15 @@ export component AppWindow inherits Window {
             vertical-stretch: 0;
             spacing: Theme.space-3;
             Rectangle { horizontal-stretch: 1; }
-            ToolButton { icon: root.dark-mode ? @image-url("../../../assets/icons/toolbar/theme-sun.svg") : @image-url("../../../assets/icons/toolbar/theme.svg"); label: "Switch theme"; clicked => { root.toggle-theme(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/checksum.svg"); label: "Checksums"; enabled: root.image-path != ""; clicked => { root.compute-checksums(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/log.svg"); label: "Log"; selected: root.show-log; clicked => { root.toggle-log(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/settings.svg"); label: "Advanced"; selected: root.show-advanced; clicked => { root.toggle-advanced(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/about.svg"); label: "About"; selected: root.show-about; clicked => { root.toggle-about(); } }
+            ToolButton { icon: root.dark-mode ? @image-url("../../../assets/icons/toolbar/theme-sun.svg") : @image-url("../../../assets/icons/toolbar/theme.svg"); label: "Switch theme"; enabled: !root.modal-open; clicked => { root.toggle-theme(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/checksum.svg"); label: "Checksums"; enabled: root.image-path != "" && root.can-configure; clicked => { root.compute-checksums(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/log.svg"); label: "Log"; enabled: !root.modal-open; selected: root.show-log; clicked => { root.toggle-log(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/settings.svg"); label: "Advanced"; enabled: !root.modal-open; selected: root.show-advanced; clicked => { root.toggle-advanced(); } }
+            ToolButton { icon: @image-url("../../../assets/icons/toolbar/about.svg"); label: "About"; enabled: !root.modal-open; selected: root.show-about; clicked => { root.toggle-about(); } }
         }
 
         ScrollView {
+            enabled: !root.modal-open;
             vertical-stretch: 1;
             viewport-height: workbench.preferred-height;
             workbench := VerticalLayout {
@@ -141,7 +145,7 @@ export component AppWindow inherits Window {
                         label: "Device";
                         choices: root.device-labels;
                         value: root.device-labels[root.selected-device];
-                        enabled: !root.is-busy && root.device-name != "No device selected";
+                        enabled: root.can-configure && root.device-name != "No device selected";
                         selected(v) => {
                             root.device-selected(v);
                         }
@@ -153,7 +157,7 @@ export component AppWindow inherits Window {
                             text: "";
                             icon: @image-url("../../../assets/icons/toolbar/refresh.svg");
                             compact: true;
-                            enabled: !root.is-busy;
+                            enabled: root.can-configure;
                             accessible-name: "Refresh devices";
                             clicked => { root.refresh-devices(); }
                         }
@@ -182,7 +186,7 @@ export component AppWindow inherits Window {
                     label: "Boot selection";
                     choices: root.boot-choices;
                     value <=> root.boot-selection;
-                    enabled: !root.is-busy;
+                    enabled: root.can-configure;
                     selected(v) => { root.boot-selected(v); }
                 }
                 if root.boot-selection == "Disk or ISO image" || root.boot-selection == "Windows To Go": HorizontalLayout {
@@ -210,7 +214,7 @@ export component AppWindow inherits Window {
                     WorkbenchButton {
                         text: "Select";
                         primary: true;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         clicked => { root.select-image(); }
                     }
                 }
@@ -239,7 +243,7 @@ export component AppWindow inherits Window {
                         label: "Partition scheme";
                         choices: root.partition-choices;
                         value <=> root.partition-scheme;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         selected(v) => { root.partition-selected(v); }
                     }
                     LabeledComboBox {
@@ -247,7 +251,7 @@ export component AppWindow inherits Window {
                         label: "Target system";
                         choices: root.target-choices;
                         value <=> root.target-system;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         selected(v) => { root.target-selected(v); }
                     }
                 }
@@ -258,7 +262,7 @@ export component AppWindow inherits Window {
                         label: "File system";
                         choices: root.filesystem-choices;
                         value <=> root.filesystem;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         selected(v) => { root.filesystem-selected(v); }
                     }
                     LabeledComboBox {
@@ -266,14 +270,14 @@ export component AppWindow inherits Window {
                         label: "Cluster size";
                         choices: root.cluster-choices;
                         value <=> root.cluster-size;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         selected(v) => { root.cluster-selected(v); }
                     }
                 }
                 LabeledLineEdit {
                     label: "Volume label";
                     value <=> root.volume-label;
-                    enabled: !root.is-busy;
+                    enabled: root.can-configure;
                 }
                 if root.persistence-enabled: VerticalLayout {
                     spacing: Theme.space-1;
@@ -282,7 +286,7 @@ export component AppWindow inherits Window {
                         minimum: 0;
                         maximum: max(root.persistence-max-gb, 0.1);
                         value <=> root.persistence-gb;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         released(v) => { root.persistence-changed(v); }
                     }
                 }
@@ -291,19 +295,19 @@ export component AppWindow inherits Window {
                     CheckBox {
                         text: "Quick format";
                         checked <=> root.quick-format;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         toggled => { root.option-changed(); }
                     }
                     CheckBox {
                         text: "Check device for bad blocks";
                         checked <=> root.check-bad-blocks;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         toggled => { root.option-changed(); }
                     }
                     CheckBox {
                         text: "Verify once written";
                         checked <=> root.verify-write;
-                        enabled: !root.is-busy;
+                        enabled: root.can-configure;
                         toggled => { root.option-changed(); }
                     }
                 }
@@ -327,13 +331,13 @@ export component AppWindow inherits Window {
                 CheckBox {
                     text: "List USB hard drives";
                     checked <=> root.list-usb-hdd;
-                    enabled: !root.is-busy;
+                    enabled: root.can-configure;
                     toggled => { root.option-changed(); root.refresh-devices(); }
                 }
                 CheckBox {
                     text: "List fixed / internal disks (dangerous)";
                     checked <=> root.list-fixed-disks;
-                    enabled: !root.is-busy;
+                    enabled: root.can-configure;
                     toggled => { root.option-changed(); root.refresh-devices(); }
                 }
             }
@@ -389,32 +393,34 @@ export component AppWindow inherits Window {
             spacing: Theme.space-3;
             WorkbenchButton {
                 text: "Close";
-                enabled: !root.is-busy;
+                enabled: !root.is-busy && !root.modal-open;
                 clicked => { root.close-clicked(); }
             }
             Rectangle { horizontal-stretch: 1; }
             if root.is-busy: WorkbenchButton {
                 text: "Cancel";
                 danger: true;
+                enabled: !root.modal-open;
                 clicked => { root.cancel-clicked(); }
             }
             WorkbenchButton {
                 text: root.boot-selection == "Non bootable" ? "Format device" : "Write image";
                 primary: true;
-                enabled: root.can-start && !root.is-busy;
+                enabled: root.can-start && root.can-configure;
                 clicked => { root.start-clicked(); }
             }
         }
         }
-        Rectangle { horizontal-stretch: 1; }
+        Rectangle { width: max(0px, (root.width - 760px) / 2); }
     }
 
     // Confirm overlay
-    if root.show-confirm: Rectangle {
-        background: Theme.scrim;
-        TouchArea {
-            width: parent.width;
-            height: parent.height;
+    if root.show-confirm: ModalOverlay {
+        dismiss => { root.confirm-rejected(); }
+        restore-focus => { confirm-cancel.focus-button(); }
+        advance-focus => {
+            if confirm-cancel.has-keyboard-focus { confirm-accept.focus-button(); }
+            else { confirm-cancel.focus-button(); }
         }
         Rectangle {
             width: min(420px, parent.width - 48px);
@@ -459,7 +465,7 @@ export component AppWindow inherits Window {
                         clicked => { root.confirm-rejected(); }
                         escape-pressed => { root.confirm-rejected(); }
                     }
-                    WorkbenchButton {
+                    confirm-accept := WorkbenchButton {
                         text: "Destroy data";
                         danger: true;
                         handles-escape: true;
@@ -472,12 +478,10 @@ export component AppWindow inherits Window {
     }
 
     // Log overlay
-    if root.show-log: Rectangle {
-        background: Theme.scrim;
-        TouchArea {
-            width: parent.width;
-            height: parent.height;
-        }
+    if root.show-log: ModalOverlay {
+        dismiss => { root.toggle-log(); }
+        restore-focus => { log-close.focus-button(); }
+        advance-focus => { log-close.focus-button(); }
         Rectangle {
             width: min(500px, parent.width - 32px);
             height: min(420px, parent.height - 32px);
@@ -532,12 +536,10 @@ export component AppWindow inherits Window {
     }
 
     // About overlay
-    if root.show-about: Rectangle {
-        background: Theme.scrim;
-        TouchArea {
-            width: parent.width;
-            height: parent.height;
-        }
+    if root.show-about: ModalOverlay {
+        dismiss => { root.toggle-about(); }
+        restore-focus => { about-close.focus-button(); }
+        advance-focus => { about-close.focus-button(); }
         Rectangle {
             width: min(400px, parent.width - 48px);
             height: min(320px, parent.height - 48px);

@@ -54,9 +54,14 @@ export component WorkbenchButton inherits Rectangle {
     in property <bool> compact: false;
     in property <bool> initial-focus: false;
     in property <bool> handles-escape: false;
+    out property <bool> has-keyboard-focus: button-focus.has-focus;
     in property <string> accessible-name: text;
     callback clicked;
     callback escape-pressed;
+
+    public function focus-button() {
+        if root.enabled { button-focus.focus(); }
+    }
 
     height: Theme.control-height;
     min-width: compact ? 36px : 96px;
@@ -122,6 +127,38 @@ export component WorkbenchButton inherits Rectangle {
             return reject;
         }
     }
+}
+
+export component ModalOverlay inherits FocusScope {
+    callback dismiss;
+    callback advance-focus;
+    callback restore-focus;
+
+    changed has-focus => {
+        if self.has-focus { root.restore-focus(); }
+    }
+    key-pressed(event) => {
+        if event.text == Key.Escape {
+            root.dismiss();
+            return accept;
+        }
+        if event.text == Key.Tab || event.text == Key.Backtab {
+            root.advance-focus();
+            return accept;
+        }
+        return reject;
+    }
+
+    Rectangle { background: Theme.scrim; }
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down { root.restore-focus(); }
+        }
+        scroll-event(event) => { accept }
+    }
+    @children
 }
 
 export component ToolButton inherits Rectangle {

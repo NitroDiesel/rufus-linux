@@ -2,6 +2,7 @@
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use md5::{Digest as _, Md5};
@@ -67,12 +68,21 @@ impl ImageReport {
 
 /// Probe an image file without extracting contents.
 pub fn analyze(path: &Path) -> Result<ImageReport, ImageError> {
-    let meta = std::fs::metadata(path)?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)?;
+    analyze_file(path, &mut file)
+}
+
+/// Analyze the opened descriptor; the path is used only for names and hints.
+pub fn analyze_file(path: &Path, file: &mut File) -> Result<ImageReport, ImageError> {
+    let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(ImageError::NotAFile(path.to_owned()));
     }
     let size_bytes = meta.len();
-    let mut file = File::open(path)?;
+    file.seek(SeekFrom::Start(0))?;
     let mut header = [0u8; 512];
     let n = file.read(&mut header)?;
     let header = &header[..n];
@@ -117,8 +127,7 @@ pub fn analyze(path: &Path) -> Result<ImageReport, ImageError> {
         return Ok(report);
     }
 
-    if header.starts_with(b"conectix") || ext == "vhd" || detect_vhd_footer(&mut file, size_bytes)?
-    {
+    if header.starts_with(b"conectix") || ext == "vhd" || detect_vhd_footer(file, size_bytes)? {
         report.kind = ImageSourceKind::Vhd;
         report.notes.push(
             "VHD input is recognized but conversion is not available in this release.".into(),
@@ -161,7 +170,7 @@ pub fn analyze(path: &Path) -> Result<ImageReport, ImageError> {
     }
 
     // ISO 9660: "CD001" at offset 0x8001 (primary volume descriptor)
-    let is_iso = detect_iso(&mut file)?;
+    let is_iso = detect_iso(file)?;
     if is_iso || ext == "iso" {
         report.kind = ImageSourceKind::Iso;
         report.preferred_write_mode = WriteMode::IsoFileCopy;
@@ -359,6 +368,21 @@ mod tests {
     }
 
     #[test]
+    fn bound_analysis_uses_descriptor_metadata_after_path_replacement() {
+        let path = temp_path("bound.img");
+        let moved = temp_path("moved.img");
+        std::fs::write(&path, vec![0; 4096]).expect("source fixture");
+        let mut source = File::open(&path).expect("bind source");
+        std::fs::rename(&path, &moved).expect("rename source");
+        std::fs::write(&path, b"replacement").expect("replacement source");
+        let report = analyze_file(&path, &mut source).expect("analyze descriptor");
+        assert_eq!(report.size_bytes, 4096);
+        assert_eq!(report.kind, ImageSourceKind::Raw);
+        std::fs::remove_file(path).expect("remove replacement");
+        std::fs::remove_file(moved).expect("remove original fixture");
+    }
+
+    #[test]
     fn detects_fixed_vhd_footer_without_vhd_extension() {
         for footer_size in [512, 511] {
             let path = temp_path("fixed-vhd").with_extension("img");
@@ -389,6 +413,18 @@ mod tests {
             std::fs::remove_file(&path).expect("remove raw fixture");
             assert_eq!(report.kind, ImageSourceKind::Raw, "image size {size}");
         }
+    }
+
+    #[test]
+    fn named_pipe_is_rejected_without_waiting_for_a_writer() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = temp_path("fifo");
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("fixture path");
+        // SAFETY: name is a live NUL-terminated pathname.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let result = analyze(&path);
+        std::fs::remove_file(&path).expect("remove FIFO fixture");
+        assert!(matches!(result, Err(ImageError::NotAFile(_))));
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 mod helper_client;
 mod hotplug;
+mod image_inspection;
 mod state;
 
 use std::cell::RefCell;
@@ -36,11 +37,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Match AppWindow's preferred size before Slint creates the GLX drawable.
+    // Other explicit backend selections retain Slint's normal selection behavior.
+    let backend = std::env::var("SLINT_BACKEND").unwrap_or_default();
+    if matches!(
+        backend.to_ascii_lowercase().as_str(),
+        "" | "winit" | "gl" | "femtovg" | "winit-gl" | "winit-femtovg"
+    ) {
+        let backend = i_slint_backend_winit::Backend::builder()
+            .with_window_attributes_hook(|attributes| {
+                let size = i_slint_backend_winit::winit::dpi::LogicalSize::new(560.0, 720.0);
+                let scale = std::env::var("SLINT_SCALE_FACTOR")
+                    .ok()
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .filter(|scale| *scale > 0.0);
+                if let Some(scale) = scale {
+                    attributes.with_inner_size(size.to_physical::<u32>(f64::from(scale)))
+                } else {
+                    attributes.with_inner_size(size)
+                }
+            })
+            .build()?;
+        slint::platform::set_platform(Box::new(backend))?;
+    }
+
     let ui = AppWindow::new()?;
     let state = Rc::new(RefCell::new(AppState::new()));
     let running_helper = Rc::new(RefCell::new(None::<RunningHelper>));
     let (helper_sender, helper_receiver) = mpsc::channel::<WorkerMessage>();
     let (checksum_sender, checksum_receiver) = mpsc::channel::<Result<String, String>>();
+    let (image_sender, image_receiver) = mpsc::channel();
     let (device_change_sender, device_change_receiver) = mpsc::sync_channel::<()>(1);
     let _device_watcher = match BlockDeviceWatcher::spawn(device_change_sender) {
         Ok(watcher) => Some(watcher),
@@ -164,6 +190,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    let image_timer = Timer::default();
+    {
+        let ui_weak = ui.as_weak();
+        let state = Rc::clone(&state);
+        image_timer.start(TimerMode::Repeated, Duration::from_millis(40), move || {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            while let Ok((generation, result)) = image_receiver.try_recv() {
+                let mut st = state.borrow_mut();
+                if st.finish_image_inspection(generation, result) {
+                    apply_state_to_ui(&ui, &st);
+                    if st.close_after_inspection {
+                        let _ = ui.hide();
+                    }
+                }
+            }
+        });
+    }
+
     let device_change_timer = Timer::default();
     {
         let ui_weak = ui.as_weak();
@@ -232,13 +278,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let ui_weak = ui.as_weak();
         let state = state.clone();
+        let image_sender = image_sender.clone();
         ui.on_select_image(move || {
             if let Some(ui) = ui_weak.upgrade() {
+                if state.borrow().is_busy || state.borrow().image_inspecting {
+                    return;
+                }
                 match pick_image_file() {
                     Ok(Some(path)) => {
                         let mut st = state.borrow_mut();
-                        st.set_image(path);
+                        let Some((generation, cancel)) = st.begin_image_inspection(path.clone())
+                        else {
+                            return;
+                        };
                         apply_state_to_ui(&ui, &st);
+                        let sender = image_sender.clone();
+                        if let Err(error) = std::thread::Builder::new()
+                            .name("image-inspection".into())
+                            .spawn(move || {
+                                let result = image_inspection::inspect(&path, &cancel);
+                                let _ = sender.send((generation, result));
+                            })
+                        {
+                            st.finish_image_inspection(
+                                generation,
+                                Err(rufus_image::ImageError::Io(error)),
+                            );
+                            apply_state_to_ui(&ui, &st);
+                        }
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -440,6 +507,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.on_compute_checksums(move || {
             if let Some(ui) = ui_weak.upgrade() {
                 let mut st = state.borrow_mut();
+                if st.image_inspecting || st.is_busy {
+                    return;
+                }
                 let Some(path) = st.image_path.clone() else {
                     st.status_line = "Select an image before computing checksums.".into();
                     apply_state_to_ui(&ui, &st);
@@ -479,9 +549,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let ui_weak = ui.as_weak();
+        let state = Rc::clone(&state);
         ui.on_close_clicked(move || {
             if let Some(ui) = ui_weak.upgrade() {
-                if !ui.get_is_busy() {
+                let mut st = state.borrow_mut();
+                if st.image_inspecting {
+                    st.close_after_inspection = true;
+                    st.cancel_image_inspection();
+                } else if !st.is_busy {
                     let _ = ui.hide();
                 }
             }
@@ -499,6 +574,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(ui) = ui_weak.upgrade() {
                     apply_state_to_ui(&ui, &st);
                 }
+                CloseRequestResponse::KeepWindowShown
+            } else if st.image_inspecting {
+                st.close_after_inspection = true;
+                st.cancel_image_inspection();
                 CloseRequestResponse::KeepWindowShown
             } else {
                 CloseRequestResponse::HideWindow
@@ -640,6 +719,7 @@ fn apply_state_to_ui(ui: &AppWindow, state: &AppState) {
     ui.set_persistence_max_gb(state.persistence_max_gb as f32);
     ui.set_persistence_gb(state.persistence_gb as f32);
     ui.set_can_start(state.can_start);
+    ui.set_image_inspecting(state.image_inspecting);
     ui.set_is_busy(state.is_busy);
     ui.set_status_phase(state.status_phase.clone().into());
     ui.set_status_operation(state.status_operation.clone().into());

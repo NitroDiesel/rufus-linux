@@ -172,6 +172,44 @@ request. Regression tests cover renamed VHDs, unchanged raw-image recognition,
 and refusal to construct a write request. These changes do not implement VHD
 conversion and are not included in the existing 0.1.2 release assets.
 
+The `codex/vhd-streaming-backend` continuation adds a tested private conversion
+backend but keeps VHD/VHDX blocked at both production entry points. Read
+[`VIRTUAL_DISKS.md`](VIRTUAL_DISKS.md) before changing virtual disk handling;
+it records provider limits, the approved source-snapshot fallback and decoder
+inactivity deadline, shared write-error cleanup, and the remaining
+fault-injection, UI, packaging, and boot gates. A pinned QEMU journal fixture
+now verifies read-only refusal and source preservation, with a separate repaired
+control. Generated fixed/dynamic 4Kn metadata variants and writer-generated
+VHD/VHDX parent chains also verify rejection without source changes. The optional
+parent-chain generator is documented under `scripts/fixtures/parent-chains/`;
+its .NET dependencies are not needed by Rufus or normal CI. Production VHD/VHDX
+entry points remain blocked.
+
+Cross-distribution tests found that QEMU versions disagree on DiscUtils VHD
+capacity. The backend now refuses any VHD export that differs from the validated
+footer, including ambiguous legacy CHS images. See `VIRTUAL_DISKS.md` before
+changing that policy; accepting the smaller size could omit image data.
+
+The continuation branch runs image inspection off the UI thread and
+uses the helper library's non-root, read-only inspection API for optional
+VHD/VHDX capacity previews. Configuration and Start stay disabled during the
+probe; generation checks discard stale results. Closing requests cancellation
+and waits for worker cleanup. Read `VIRTUAL_DISKS.md` for limits and current
+verification evidence. This work is not in the 0.1.2 release assets.
+
+That integration also fixes workbench sizing and adds explicit modal keyboard
+focus trapping. Light/dark and Log/About checks passed locally. Explicit native
+startup sizing fixes the reproduced X11 paint offset, with a CI screenshot
+regression at three scale factors. Normal X11/Wayland desktop and physical
+confirmation smoke tests remain open in `VIRTUAL_DISKS.md`.
+
+The startup CI test exposed a missing `libxkbcommon-x11` runtime dependency.
+The continuation branch declares the dynamically loaded X11, Wayland, and
+OpenGL/EGL libraries in all three native recipes and checks the built package
+metadata. AppImage users still supply the host display stack. Read `BUILDING.md`
+for distribution package names; this correction is
+not in the existing 0.1.2 release assets.
+
 These are known follow-ups, not claims that the current release is broken:
 
 - Run a packaged, real-polkit smoke test on disposable physical USB media for
@@ -194,6 +232,19 @@ These are known follow-ups, not claims that the current release is broken:
 - The AppImage compatibility claim is x86_64 glibc 2.28+ desktop Linux with a
   FUSE extraction fallback. Alpine/musl, NixOS/non-FHS layouts, headless hosts,
   and systems without polkit are not covered by a universal “any distro” claim.
+
+## Repository administration follow-ups
+
+Repository administration still has two owner requests awaiting resolution:
+
+- Remove the old `chatgpt-codex-connector[bot]` contributor credit. Two published
+  merge commits contain its co-author trailer, `a79ab63` and `a377ceb`.
+  Removing a commit-derived credit may require rewriting published history;
+  no such rewrite has been performed. Agree on the exact migration and release
+  provenance impact with the owner before changing those commits.
+- Add repository tags/topics from two screenshots whose files are unavailable.
+  The exact names have been requested but not supplied. Preserve this as an
+  input gap rather than guessing tags.
 
 ## Build, test, and release gates
 
