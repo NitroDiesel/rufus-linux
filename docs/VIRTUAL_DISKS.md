@@ -144,6 +144,35 @@ The namespace exited, the temporary image was released, and host mount/loop
 checks found no remaining test mounts or loop device. These checks are not yet
 automated in CI and do not replace physical-media or mid-copy ENOSPC testing.
 
+### Real mid-copy space exhaustion
+
+`scripts/ci/snapshot-enospc.sh` runs the copy routine's ignored ENOSPC test in a
+private mount namespace with a new 272 MiB tmpfs. It never mounts over `/var/tmp`
+or uses a block device. The test checks the filesystem type and size before
+allocating anonymous files. After the second real space check passes, a filler
+file consumes all but 512 KiB, forcing the following 1 MiB write to fail.
+
+Run it after compiling the helper tests:
+
+```sh
+sudo bash scripts/ci/snapshot-enospc.sh target/debug/deps/rufus_helper-<test-hash>
+```
+
+On 2026-09-13, both the normal and traced runs passed. `strace` recorded a
+524,288-byte partial write followed by `ENOSPC`. The test verifies the error
+propagates, the source bytes stay unchanged, and closing the anonymous partial
+copy and filler restores free space. The script unmounts and removes its private
+directory; host checks found no residue. CI invokes this test explicitly rather
+than running every ignored test without its required environment.
+
+A failing-command control returned its expected nonzero status and also left
+no test mount or directory behind. The 81 regular workspace tests, Clippy with
+warnings denied, formatting, and CI shell/YAML syntax checks passed locally.
+
+This exercises actual filesystem exhaustion in the copy routine. It does not
+exercise the whole `create` operation, a quota-limited disk filesystem, power
+loss, or a physical USB write. Production code is unchanged by this fixture.
+
 ## Write cleanup and decoder deadlines
 
 Image writes now share one completion path that terminates the decoder and
@@ -176,9 +205,9 @@ reads separated by downstream work longer than the timeout.
 
 ## Remaining gates and provider limits
 
-- Automate the isolated Btrfs and undersized-filesystem checks above, and test
-  actual mid-copy filesystem exhaustion. Initial low-space refusal, reflink,
-  and the copy fallback have local evidence.
+- Automate the isolated Btrfs and initial undersized-filesystem checks above.
+  Actual mid-copy tmpfs exhaustion now has an isolated regression; initial
+  low-space refusal and reflink still have manual local evidence.
 - Cross-check Hyper-V-created parent chains and 4Kn media before extending
   those capabilities. Writer-generated VHD/VHDX chains, fixed/dynamic 4Kn
   metadata, and a real unreplayed-log fixture now verify the current refusal

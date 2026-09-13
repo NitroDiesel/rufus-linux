@@ -39,7 +39,9 @@ jobs:
           tested=0
           for binary in target/debug/deps/rufus_helper-*; do
             if [[ -f "$binary" && -x "$binary" ]]; then
-              sudo -- "$binary" --ignored
+              sudo -- "$binary" --exact source_snapshot::tests::protected_snapshot_is_stable_and_read_only --ignored
+              sudo -- "$binary" --exact virtual_disk::tests::providers_roundtrip_bound_sources_and_reject_oversized_targets --ignored
+              sudo -- bash scripts/ci/snapshot-enospc.sh "$binary"
               tested=$((tested + 1))
             fi
           done

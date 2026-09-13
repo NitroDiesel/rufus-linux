@@ -190,6 +190,10 @@ capacity. The backend now refuses any VHD export that differs from the validated
 footer, including ambiguous legacy CHS images. See `VIRTUAL_DISKS.md` before
 changing that policy; accepting the smaller size could omit image data.
 
+The snapshot copy routine also has an isolated real-ENOSPC regression using a
+bounded private tmpfs. Read `VIRTUAL_DISKS.md` for its invocation and limits;
+running all ignored tests directly does not provide the required mount setup.
+
 The continuation branch runs image inspection off the UI thread and
 uses the helper library's non-root, read-only inspection API for optional
 VHD/VHDX capacity previews. Configuration and Start stay disabled during the

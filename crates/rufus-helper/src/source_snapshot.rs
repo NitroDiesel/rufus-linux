@@ -275,4 +275,95 @@ mod tests {
             Err(HelperError::Cancelled)
         ));
     }
+
+    #[test]
+    #[ignore = "requires scripts/ci/snapshot-enospc.sh and its private size-limited tmpfs"]
+    fn snapshot_copy_reports_real_enospc_and_reclaims_space() {
+        assert_eq!(unsafe { libc::geteuid() }, 0, "isolated root fixture");
+        let path = std::env::var_os("RUFUS_SNAPSHOT_TEST_DIR").expect("private test tmpfs");
+        let directory = File::open(path).expect("open test directory");
+        let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+        assert_eq!(
+            unsafe { libc::fstatfs(directory.as_raw_fd(), stat.as_mut_ptr()) },
+            0
+        );
+        let stat = unsafe { stat.assume_init() };
+        assert_eq!(
+            stat.f_type,
+            libc::TMPFS_MAGIC,
+            "only a bounded tmpfs may be filled"
+        );
+        assert_eq!(stat.f_blocks * stat.f_bsize as u64, 272 * 1024 * 1024);
+        let anonymous = || {
+            let fd = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    c".".as_ptr(),
+                    libc::O_TMPFILE | libc::O_RDWR | libc::O_CLOEXEC,
+                    0o600,
+                )
+            };
+            assert!(fd >= 0, "create anonymous test file");
+            unsafe { File::from_raw_fd(fd) }
+        };
+        let available = || {
+            let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+            assert_eq!(
+                unsafe { libc::fstatvfs(directory.as_raw_fd(), stat.as_mut_ptr()) },
+                0
+            );
+            let stat = unsafe { stat.assume_init() };
+            stat.f_bavail * stat.f_frsize
+        };
+        let chunk = 1024 * 1024;
+        let payload = vec![0x5a; 3 * chunk];
+        let mut source = anonymous();
+        source.write_all(&payload).expect("source payload");
+        let baseline = available();
+        let mut destination = anonymous();
+        let filler = anonymous();
+        let mut calls = 0;
+        let error = copy_with_space_check(
+            &source,
+            &mut destination,
+            payload.len() as u64,
+            &CancellationToken::new(),
+            |file, bytes| {
+                reserve_space(file, bytes)?;
+                calls += 1;
+                if calls == 2 {
+                    // Another writer consumes space after the real guard passes.
+                    let fill = i64::try_from(available() - (chunk / 2) as u64)
+                        .expect("bounded allocation");
+                    assert_eq!(
+                        unsafe { libc::fallocate(filler.as_raw_fd(), 0, 0, fill) },
+                        0
+                    );
+                }
+                Ok(())
+            },
+        )
+        .expect_err("real filesystem exhaustion must fail the copy");
+        assert!(
+            matches!(error, HelperError::Io(ref error) if error.raw_os_error() == Some(libc::ENOSPC)),
+            "{error}"
+        );
+        assert_eq!(calls, 2);
+        let partial = destination.metadata().expect("partial snapshot");
+        assert!(partial.len() >= chunk as u64 && partial.len() < payload.len() as u64);
+        assert_eq!(partial.nlink(), 0);
+        drop(destination);
+        drop(filler);
+        assert_eq!(
+            available(),
+            baseline,
+            "anonymous partial copy and filler reclaimed"
+        );
+        source.rewind().expect("rewind source");
+        let mut actual = Vec::new();
+        source
+            .read_to_end(&mut actual)
+            .expect("read unchanged source");
+        assert_eq!(actual, payload);
+    }
 }
