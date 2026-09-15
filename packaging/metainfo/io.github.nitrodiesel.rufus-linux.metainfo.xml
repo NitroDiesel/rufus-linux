@@ -23,6 +23,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.3" date="2026-09-15">
+      <description>
+        <p>Enables standalone VHD/VHDX conversion when qemu-nbd, nbdinfo,
+        and nbdcopy are installed. Native packages include those providers.</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-08-15">
       <description>
         <p>Adds a verified portable AppImage desktop build and strengthens

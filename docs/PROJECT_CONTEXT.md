@@ -18,12 +18,10 @@ Debian/Ubuntu, and Fedora. Feature parity means implementing an upstream concept
 safely on Linux; it does not mean exposing a control before its full operation
 is implemented and verified.
 
-## Current baseline: 0.1.2
+## Current baseline: 0.1.3
 
-Version 0.1.2 is the continuation baseline. Its source and packaging were
-merged in [PR #6](https://github.com/NitroDiesel/rufus-linux/pull/6), and its
-public installers belong in the
-[v0.1.2 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.2).
+Version 0.1.3 is the continuation baseline. Its public installers belong in the
+[v0.1.3 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.3).
 
 Completed product work includes:
 
@@ -49,7 +47,9 @@ Completed product work includes:
   loader tests, and GitHub build provenance;
 - the original upstream Rufus PNG icon set at 16 through 512 pixels. The icon
   files are public domain, courtesy of PC Unleashed; keep the attribution in
-  `assets/icons/LICENSE.txt` and `THIRD_PARTY.md`.
+  `assets/icons/LICENSE.txt` and `THIRD_PARTY.md`;
+- standalone 512-byte-sector VHD/VHDX conversion through protected
+  `qemu-nbd`/`nbdcopy` streaming when those tools are installed.
 
 The authoritative feature truth is
 [`CAPABILITIES.md`](CAPABILITIES.md). Recognized but blocked flows include
@@ -167,12 +167,11 @@ with a concise reason.
 
 ## Known continuation points
 
-Work after 0.1.2 now recognizes fixed VHD footer signatures even when the file
-has been renamed, including the older 511-byte footer layout. The desktop
-request builder rechecks operation availability before constructing a helper
-request. Regression tests cover renamed VHDs, unchanged raw-image recognition,
-and refusal to construct a write request. These changes do not implement VHD
-conversion and are not included in the existing 0.1.2 release assets.
+Fixed VHD footer signatures are recognized even when the file has been renamed,
+including the older 511-byte footer layout. The desktop request builder rechecks
+operation availability before constructing a helper request. Regression tests
+cover renamed VHDs, unchanged raw-image recognition, and refusal to construct a
+raw write of container bytes.
 
 The `codex/vhd-streaming-backend` continuation adds a tested private conversion
 backend but keeps VHD/VHDX blocked at both production entry points. Read
@@ -202,7 +201,7 @@ uses the helper library's non-root, read-only inspection API for optional
 VHD/VHDX capacity previews. Configuration and Start stay disabled during the
 probe; generation checks discard stale results. Closing requests cancellation
 and waits for worker cleanup. Read `VIRTUAL_DISKS.md` for limits and current
-verification evidence. This work is not in the 0.1.2 release assets.
+verification evidence.
 
 That integration also fixes workbench sizing and adds explicit modal keyboard
 focus trapping. Light/dark and Log/About checks passed locally. Explicit native
@@ -218,7 +217,7 @@ The continuation branch declares the dynamically loaded X11, Wayland, and
 OpenGL/EGL libraries in all three native recipes and checks the built package
 metadata. AppImage users still supply the host display stack. Read `BUILDING.md`
 for distribution package names; this correction is
-not in the existing 0.1.2 release assets.
+included in 0.1.3.
 
 These are known follow-ups, not claims that the current release is broken:
 

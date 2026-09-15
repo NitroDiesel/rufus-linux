@@ -119,7 +119,7 @@ workflow, then stage and verify it with:
 ```sh
 packaging/appimage/stage-appdir.sh target/release/rufus-linux RufusLinux.AppDir
 appimagetool --runtime-file runtime-x86_64 RufusLinux.AppDir rufus-linux.AppImage
-packaging/appimage/verify-appimage.sh rufus-linux.AppImage 0.1.2 2.28
+packaging/appimage/verify-appimage.sh rufus-linux.AppImage 0.1.3 2.28
 ```
 
 The release workflow supplies SHA-verified appimagetool and type-2 runtime
