@@ -236,6 +236,15 @@ impl OperationPlan {
             return Err(PlanError::SourceMissing);
         }
         if let Some(source) = &self.source {
+            if matches!(source.kind, ImageSourceKind::Vhd | ImageSourceKind::Vhdx)
+                && !source
+                    .decompressed_size_bytes
+                    .is_some_and(|size| size > 0 && size % 512 == 0)
+            {
+                return Err(PlanError::IncompatibleOptions(
+                    "inspect a valid VHD/VHDX disk capacity before planning a write".into(),
+                ));
+            }
             let needed = source.decompressed_size_bytes.unwrap_or(source.size_bytes);
             if needed > self.target_fingerprint.size_bytes {
                 return Err(PlanError::SourceTooLarge);
@@ -400,5 +409,32 @@ mod tests {
             source.size_bytes = plan.target_fingerprint.size_bytes + 1;
         }
         assert_eq!(plan.validate(), Err(PlanError::SourceTooLarge));
+    }
+
+    #[test]
+    fn virtual_disk_plan_requires_valid_decoded_capacity() {
+        for kind in [ImageSourceKind::Vhd, ImageSourceKind::Vhdx] {
+            let mut plan = sample_plan();
+            let capacity = plan.target_fingerprint.size_bytes;
+            for size in [None, Some(0), Some(513)] {
+                let source = plan.source.as_mut().expect("source fixture");
+                source.kind = kind;
+                source.decompressed_size_bytes = size;
+                assert!(matches!(
+                    plan.validate(),
+                    Err(PlanError::IncompatibleOptions(_))
+                ));
+            }
+            plan.source
+                .as_mut()
+                .expect("source")
+                .decompressed_size_bytes = Some(capacity + 512);
+            assert_eq!(plan.validate(), Err(PlanError::SourceTooLarge));
+            plan.source
+                .as_mut()
+                .expect("source")
+                .decompressed_size_bytes = Some(capacity);
+            assert!(plan.validate().is_ok());
+        }
     }
 }

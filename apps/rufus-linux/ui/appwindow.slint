@@ -416,6 +416,11 @@ export component AppWindow inherits Window {
 
     // Confirm overlay
     if root.show-confirm: ModalOverlay {
+        keyboard-scroll-enabled: true;
+        scroll-content(amount) => {
+            confirm-scroll.viewport-y = clamp(confirm-scroll.viewport-y + amount * 1px,
+                min(0px, confirm-scroll.height - confirm-scroll.viewport-height), 0px);
+        }
         dismiss => { root.confirm-rejected(); }
         restore-focus => { confirm-cancel.focus-button(); }
         advance-focus => {
@@ -424,7 +429,7 @@ export component AppWindow inherits Window {
         }
         Rectangle {
             width: min(420px, parent.width - 48px);
-            height: min(340px, parent.height - 48px);
+            height: min(420px, parent.height - 48px);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             border-radius: Theme.section-radius;
@@ -443,10 +448,19 @@ export component AppWindow inherits Window {
                 }
                 Rectangle {
                     vertical-stretch: 1;
-                    ScrollView {
-                        viewport-height: confirm-copy.preferred-height;
+                    clip: true;
+                    border-radius: Theme.control-radius;
+                    background: Theme.canvas;
+                    border-width: Theme.border-width;
+                    border-color: Theme.border;
+                    confirm-scroll := Flickable {
+                        width: parent.width;
+                        height: parent.height;
+                        viewport-height: confirm-copy.preferred-height + Theme.space-3;
                         confirm-copy := Text {
-                            width: parent.width - Theme.space-2;
+                            x: Theme.space-2;
+                            y: Theme.space-2;
+                            width: parent.width - Theme.space-4;
                             text: root.confirm-body;
                             color: Theme.text;
                             font-family: Theme.body-font;
@@ -466,7 +480,8 @@ export component AppWindow inherits Window {
                         escape-pressed => { root.confirm-rejected(); }
                     }
                     confirm-accept := WorkbenchButton {
-                        text: "Destroy data";
+                        text: root.confirm-title;
+                        min-width: 112px;
                         danger: true;
                         handles-escape: true;
                         clicked => { root.confirm-accepted(); }

@@ -130,9 +130,11 @@ export component WorkbenchButton inherits Rectangle {
 }
 
 export component ModalOverlay inherits FocusScope {
+    in property <bool> keyboard-scroll-enabled: false;
     callback dismiss;
     callback advance-focus;
     callback restore-focus;
+    callback scroll-content(float);
 
     changed has-focus => {
         if self.has-focus { root.restore-focus(); }
@@ -145,6 +147,16 @@ export component ModalOverlay inherits FocusScope {
         if event.text == Key.Tab || event.text == Key.Backtab {
             root.advance-focus();
             return accept;
+        }
+        if root.keyboard-scroll-enabled {
+            if event.text == Key.DownArrow || event.text == Key.PageDown {
+                root.scroll-content(event.text == Key.PageDown ? -160 : -32);
+                return accept;
+            }
+            if event.text == Key.UpArrow || event.text == Key.PageUp {
+                root.scroll-content(event.text == Key.PageUp ? 160 : 32);
+                return accept;
+            }
         }
         return reject;
     }

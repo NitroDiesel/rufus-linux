@@ -205,7 +205,10 @@ verification evidence. This work is not in the 0.1.2 release assets.
 That integration also fixes workbench sizing and adds explicit modal keyboard
 focus trapping. Light/dark and Log/About checks passed locally. Explicit native
 startup sizing fixes the reproduced X11 paint offset, with a CI screenshot
-regression at three scale factors. Normal X11/Wayland desktop and physical
+regression at three scale factors. Destructive confirmation now includes source
+file and virtual-disk sizes after the target identity, omits source details
+when formatting, and can be exercised with the non-destructive
+`confirmation-preview` example. Normal X11/Wayland desktop and physical
 confirmation smoke tests remain open in `VIRTUAL_DISKS.md`.
 
 The startup CI test exposed a missing `libxkbcommon-x11` runtime dependency.

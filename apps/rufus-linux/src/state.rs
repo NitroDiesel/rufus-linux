@@ -461,7 +461,7 @@ impl AppState {
             .map_err(|e| e.to_string())?;
 
         // Also validate plan construction.
-        self.build_plan().map_err(|e| e.to_string())?;
+        let plan = self.build_plan().map_err(|e| e.to_string())?;
 
         let mut body = confirmation_message(
             self.action_name(),
@@ -470,6 +470,12 @@ impl AppState {
             &rufus_image::format_size(dev.fingerprint.size_bytes),
             dev.fingerprint.serial.as_deref(),
         );
+        if plan.write_mode != WriteMode::FormatOnly {
+            if let Some(source) = &plan.source {
+                body.push_str("\n\n");
+                body.push_str(&crate::confirmation::source_details(source));
+            }
+        }
         for extra in policy.extra_confirmations(dev, &snapshot, 1) {
             body.push_str("\n\n");
             body.push_str(extra);
@@ -580,8 +586,9 @@ impl AppState {
         } else {
             VerificationLevel::None
         };
-        let source = match (&self.image_path, &self.image_report) {
-            (Some(path), Some(report)) => Some(ImageSource {
+        let source = match (&self.image_path, &self.image_report, write_mode) {
+            (_, _, WriteMode::FormatOnly) => None,
+            (Some(path), Some(report), _) => Some(ImageSource {
                 path: path.clone(),
                 kind: report.kind,
                 size_bytes: report.size_bytes,
@@ -817,6 +824,43 @@ mod tests {
         st.recompute();
         let plan = st.build_plan().expect("plan");
         assert_eq!(plan.write_mode, WriteMode::FormatOnly);
+    }
+
+    #[test]
+    fn confirmation_names_the_source_and_distinguishes_virtual_capacity() {
+        let mut st = AppState::new();
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+        st.set_image(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"));
+        let report = st.image_report.as_mut().expect("regular source fixture");
+        report.kind = ImageSourceKind::Vhdx;
+        report.size_bytes = 8 * 1024 * 1024;
+        report.decompressed_size_bytes = Some(16 * 1024 * 1024);
+        let body = st.build_confirm().expect("advisory confirmation fixture");
+        assert!(body.contains("File size: 8.0 MB\nDisk size: 16.0 MB"));
+        assert!(
+            body.find("Serial: SN").expect("target identity")
+                < body.find("Image:").expect("source details")
+        );
+        assert!(
+            st.build_helper_request().is_err(),
+            "virtual writes remain blocked"
+        );
+
+        st.image_report
+            .as_mut()
+            .expect("fixture")
+            .decompressed_size_bytes = Some(64 * 1024 * 1024 * 1024);
+        assert!(
+            st.build_confirm().is_err(),
+            "expanded image must fit the target"
+        );
+        st.boot_selection = BootSelection::NonBootable;
+        let body = st
+            .build_confirm()
+            .expect("format ignores stale selected image");
+        assert!(!body.contains("Image:"));
+        assert!(st.build_plan().expect("format plan").source.is_none());
     }
 
     #[test]

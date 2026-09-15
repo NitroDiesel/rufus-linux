@@ -1,5 +1,6 @@
 //! Rufus Linux desktop — presentation only; destructive I/O stays in the helper.
 
+mod confirmation;
 mod helper_client;
 mod hotplug;
 mod image_inspection;

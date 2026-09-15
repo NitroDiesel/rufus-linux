@@ -217,9 +217,14 @@ reads separated by downstream work longer than the timeout.
   paths and source preservation; they do not cover every format variation.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
-- Complete virtual-size destructive confirmation and native package dependencies.
-  Read-only asynchronous desktop inspection is implemented below; it does not
-  satisfy the write-path UI gate.
+- Native package dependencies for the conversion providers, plus loop-backed
+  and disposable physical-media confirmation of the write path, remain open.
+  Destructive confirmation now names the source after target identity,
+  distinguishes container file size from virtual disk size, omits source
+  details for format-only plans, and refuses unknown or unaligned VHD/VHDX
+  capacity at plan time. A non-destructive `confirmation-preview` example
+  exists for keyboard-scroll and long-filename checks. VHD/VHDX Start remains
+  blocked, so this is not a production write-path UI.
 - Perform loop-backed and boot tests, then the disposable physical-media gate.
 - Update capability claims and release versions before publishing installers.
 
@@ -274,8 +279,20 @@ The modal checks found and fixed Tab escaping to background controls. Shared
 `ModalOverlay` now traps Tab/Backtab, handles Escape, and restores the safe
 button after a scrim click. Log and About were exercised with outside clicks,
 wheel input, repeated forward/backward Tab, Escape, and Space activation.
-Confirmation uses the same overlay with a two-button focus cycle; that cycle
-still needs a disposable-device UI smoke test before a release.
+Confirmation uses the same overlay with a two-button focus cycle, a clipped
+body for long source paths, keyboard scrolling of the copy, and action-named
+accept text. Unit tests cover source
+ordering, format-only omission, unknown decoded capacity, and refusal of an
+expanded image that does not fit the target. The `confirmation-preview`
+example can open the dialog without device discovery or helper callbacks:
+
+```sh
+cargo run -p rufus-linux --example confirmation-preview
+cargo run -p rufus-linux --example confirmation-preview -- --format
+cargo run -p rufus-linux --example confirmation-preview -- --long
+```
+
+A disposable-device UI smoke test is still required before a release.
 
 The isolated X11 startup offset was reproduced without a window manager: the
 frame shifted upward by 120 pixels, leaving a black strip below. Slint 1.9.2
