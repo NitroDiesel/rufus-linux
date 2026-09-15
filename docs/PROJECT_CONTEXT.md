@@ -252,5 +252,5 @@ AppImage and verify them independently.
 7. For a release, verify the public assets and full-release status after the
    workflow completes; a successful build artifact alone is not publication.
 
-Commit material Codex changes with the co-author trailer required by the root
-`AGENTS.md` so GitHub records the Codex contribution.
+Commit material Codex or Grok changes with the co-author trailer required by
+the root `AGENTS.md` so GitHub records that contribution.
