@@ -1,5 +1,5 @@
 Name:           rufus-linux
-Version:        0.1.2
+Version:        0.1.3
 Release:        1%{?dist}
 Summary:        Format and create bootable USB drives
 License:        GPL-3.0-or-later
@@ -54,6 +54,9 @@ done
 %{_datadir}/icons/hicolor/*/apps/io.github.nitrodiesel.rufus-linux.png
 
 %changelog
+* Tue Sep 15 2026 Rufus Linux contributors - 0.1.3-1
+- Enable standalone VHD/VHDX conversion through qemu-nbd and nbdcopy
+
 * Sat Aug 15 2026 Rufus Linux contributors - 0.1.2-1
 - Add a verified portable AppImage and harden helper readiness checks
 

@@ -40,18 +40,15 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
 
-## Changes after 0.1.2
+## Changes in 0.1.3
 
 VHD recognition checks footer signatures as well as the leading signature and
 filename. Renaming a fixed VHD to `.img` no longer offers it as raw media.
-The desktop also rejects unavailable operations when building a helper request.
-VHD conversion remains blocked. The published 0.1.2 packages predate these fixes.
-
-Native packages now install `qemu-nbd`, `nbdinfo`, and `nbdcopy`. With those
-tools present, Start writes a converted VHD/VHDX through the existing bounded
-writer. Missing tools keep Start disabled with an install remedy. AppImage
-writes still need the matching native helper; the AppImage does not bundle
-those providers. This does not prove every guest will boot.
+Native packages install `qemu-nbd`, `nbdinfo`, and `nbdcopy`. With those tools
+present, Start writes a converted standalone VHD/VHDX through the existing
+bounded writer. Missing tools keep Start disabled with an install remedy.
+AppImage writes still need the matching native helper; the AppImage does not
+bundle those providers. This does not prove every guest will boot.
 
 ## Planned secondary workflows
 

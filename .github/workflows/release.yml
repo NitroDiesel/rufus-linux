@@ -20,7 +20,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_VERSION: 0.1.2
+  PACKAGE_VERSION: 0.1.3
 
 jobs:
   debian:
@@ -52,7 +52,8 @@ jobs:
           dpkg-deb --info "$package"
           dependencies="$(dpkg-deb --field "$package" Depends | tr ',' '\n')"
           for dependency in libxkbcommon-x11-0 libxcursor1 libx11-xcb1 libxi6 \
-            libwayland-client0 libwayland-egl1 libgl1 libegl1; do
+            libwayland-client0 libwayland-egl1 libgl1 libegl1 \
+            qemu-utils libnbd-bin; do
             grep -Eq "^[[:space:]]*$dependency([[:space:]]|$)" <<< "$dependencies"
           done
           dpkg-deb --contents "$package"
@@ -112,7 +113,7 @@ jobs:
               rpm -qpi "$package"
               dependencies="$(rpm -qpR "$package")"
               for dependency in libxkbcommon-x11 libXcursor libX11-xcb libXi \
-                wayland-libs libglvnd-glx libglvnd-egl; do
+                wayland-libs libglvnd-glx libglvnd-egl qemu-img libnbd; do
                 grep -Fx "$dependency" <<< "$dependencies"
               done
               rpm -qpl "$package" | grep -Fx /usr/bin/rufus-linux
@@ -352,9 +353,11 @@ jobs:
 
           Verify the download first with `sha256sum -c SHA256SUMS`.
 
-          This release supports safe formatting and raw, compressed-raw, and
-          ISOHybrid writing with verification. Review the project capability
-          matrix before performing destructive operations.
+          This release supports safe formatting and raw, compressed-raw,
+          ISOHybrid, and standalone VHD/VHDX writing with verification.
+          Native packages install qemu-nbd, nbdinfo, and nbdcopy for
+          conversion. Review the project capability matrix before performing
+          destructive operations.
           EOF
 
           if gh release view "$tag" \

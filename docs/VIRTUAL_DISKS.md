@@ -227,8 +227,6 @@ reads separated by downstream work longer than the timeout.
   details for format-only plans, and refuses unknown or unaligned VHD/VHDX
   capacity at plan time. Start converts when the three providers are present.
 - Perform guest-boot tests, then a disposable physical-media smoke test.
-- Update release versions before publishing installers that advertise this
-  conversion path.
 
 The VHD guard currently requires a checksummed, version 1, 512-byte footer and
 disk type 2 or 3, with an aligned nonzero capacity matching the provider export.
