@@ -11,6 +11,12 @@ Linux port's architecture, safety hardening, native UI, hot-plug
 behavior, packaging, AppImage release path, verification, and agent
 handoff documentation.
 
+[Grok](https://github.com/xai-org) (xAI / Grok Build) continued that work,
+including the VHD/VHDX streaming backend, destructive confirmation source
+details, verification, and GitHub publication. Attribution uses xAI's
+documented git identity `Grok <grok-export@users.noreply.github.com>` from
+[grok-build](https://github.com/xai-org/grok-build).
+
 AI contribution credit reflects reviewed changes merged into the
 project; it does not imply ownership of Rufus or affiliation with the
 upstream Rufus maintainers.
