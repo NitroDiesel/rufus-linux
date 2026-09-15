@@ -153,7 +153,7 @@ jobs:
             bash -euxo pipefail -c '
               pacman -Syu --noconfirm \
                 rust cargo polkit util-linux parted dosfstools exfatprogs \
-                ntfsprogs e2fsprogs udftools \
+                ntfsprogs e2fsprogs udftools qemu-img libnbd \
                 fontconfig freetype2 libxkbcommon libxkbcommon-x11 \
                 libxcursor libxi libglvnd wayland libx11 libxcb
               useradd --create-home builder
@@ -179,7 +179,7 @@ jobs:
               bsdtar -tf "$package" | grep -Fx usr/bin/rufus-linux
               dependencies="$(bsdtar -xOf "$package" .PKGINFO)"
               for dependency in libxkbcommon-x11 libxcursor libxi libglvnd \
-                wayland libx11 libxcb; do
+                wayland libx11 libxcb qemu-img libnbd; do
                 grep -Fx "depend = $dependency" <<< "$dependencies"
               done
               bsdtar -tf "$package" |

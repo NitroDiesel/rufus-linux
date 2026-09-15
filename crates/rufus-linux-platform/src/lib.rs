@@ -346,6 +346,34 @@ pub fn probe_capabilities() -> CapabilityReport {
     };
 
     report.set(Capability::RawImageWrite, CapabilityState::Available);
+    {
+        let tools = ["/usr/bin/qemu-nbd", "/usr/bin/nbdinfo", "/usr/bin/nbdcopy"];
+        let missing: Vec<_> = tools
+            .iter()
+            .filter(|tool| !Path::new(tool).exists())
+            .copied()
+            .collect();
+        if missing.is_empty() {
+            report.set(Capability::VirtualDiskWrite, CapabilityState::Available);
+        } else {
+            report.set(
+                Capability::VirtualDiskWrite,
+                CapabilityState::Unavailable {
+                    missing: vec![MissingRequirement {
+                        id: missing[0].to_owned(),
+                        explanation: format!(
+                            "VHD/VHDX conversion needs qemu-nbd, nbdinfo, and nbdcopy ({})",
+                            missing.join(", ")
+                        ),
+                        remedy: Some(
+                            "install qemu-utils and libnbd-bin (Debian/Ubuntu), or qemu-img and libnbd (Fedora/Arch)"
+                                .into(),
+                        ),
+                    }],
+                },
+            );
+        }
+    }
     set_tool(
         &mut report,
         Capability::CompressedImageWrite,
@@ -804,6 +832,25 @@ mod tests {
         let report = probe_capabilities();
         assert!(!report.supports(Capability::FormatRefs));
         assert!(!report.supports(Capability::ImageCaptureFfu));
+        let tools = [
+            Path::new("/usr/bin/qemu-nbd").exists(),
+            Path::new("/usr/bin/nbdinfo").exists(),
+            Path::new("/usr/bin/nbdcopy").exists(),
+        ];
+        assert_eq!(
+            report.supports(Capability::VirtualDiskWrite),
+            tools.iter().all(|present| *present)
+        );
+    }
+
+    #[test]
+    fn native_recipes_declare_virtual_disk_providers() {
+        let debian = include_str!("../../../packaging/debian/control");
+        let rpm = include_str!("../../../packaging/rpm/rufus-linux.spec");
+        let arch = include_str!("../../../packaging/arch/PKGBUILD");
+        assert!(debian.contains("qemu-utils") && debian.contains("libnbd-bin"));
+        assert!(rpm.contains("qemu-img") && rpm.contains("libnbd"));
+        assert!(arch.contains("qemu-img") && arch.contains("libnbd"));
     }
 
     #[test]

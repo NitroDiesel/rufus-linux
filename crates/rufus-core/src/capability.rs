@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub enum Capability {
     RawImageWrite,
     CompressedImageWrite,
+    VirtualDiskWrite,
     IsoExtraction,
     ImageCaptureDd,
     ImageCaptureVhd,

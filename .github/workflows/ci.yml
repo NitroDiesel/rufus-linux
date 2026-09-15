@@ -41,6 +41,7 @@ jobs:
             if [[ -f "$binary" && -x "$binary" ]]; then
               sudo -- "$binary" --exact source_snapshot::tests::protected_snapshot_is_stable_and_read_only --ignored
               sudo -- "$binary" --exact virtual_disk::tests::providers_roundtrip_bound_sources_and_reject_oversized_targets --ignored
+              sudo -- "$binary" --exact virtual_disk::tests::converted_virtual_disk_writes_to_a_private_loop_device --ignored
               sudo -- bash scripts/ci/snapshot-enospc.sh "$binary"
               sudo -- bash scripts/ci/snapshot-filesystems.sh "$binary"
               tested=$((tested + 1))

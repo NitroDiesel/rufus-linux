@@ -474,7 +474,9 @@ pub fn validate_request(request: &HelperRequest) -> Result<(), HelperError> {
                     "only raw/ISOHybrid disk-image writing is enabled in this release".into(),
                 ));
             }
-            if !matches!(
+            if virtual_disk::is_virtual(source.kind) {
+                virtual_disk::require_tools()?;
+            } else if !matches!(
                 source.kind,
                 rufus_core::plan::ImageSourceKind::Raw
                     | rufus_core::plan::ImageSourceKind::IsoHybrid
@@ -2307,18 +2309,28 @@ mod tests {
             install_bootloader: None,
         };
         validate_request(&request).expect("validation must not open the source path");
+        let providers = virtual_disk::require_tools();
+        for kind in [ImageSourceKind::Vhd, ImageSourceKind::Vhdx] {
+            if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
+                source.kind = kind;
+            }
+            match &providers {
+                Ok(()) => validate_request(&request)
+                    .expect("virtual disks convert when qemu-nbd, nbdinfo, and nbdcopy exist"),
+                Err(_) => assert!(
+                    validate_request(&request)
+                        .expect_err("missing conversion providers")
+                        .to_string()
+                        .contains("tool missing"),
+                    "missing providers must fail closed"
+                ),
+            }
+        }
         if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
-            source.kind = ImageSourceKind::Vhd;
+            source.kind = ImageSourceKind::Wim;
         }
         assert!(validate_request(&request)
-            .expect_err("VHD rollout gate")
-            .to_string()
-            .contains("cannot be safely raw-written"));
-        if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
-            source.kind = ImageSourceKind::Vhdx;
-        }
-        assert!(validate_request(&request)
-            .expect_err("VHDX rollout gate")
+            .expect_err("WIM is not a conversion source")
             .to_string()
             .contains("cannot be safely raw-written"));
     }

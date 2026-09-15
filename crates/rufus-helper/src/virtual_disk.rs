@@ -842,4 +842,111 @@ mod tests {
             bytes
         );
     }
+
+    #[test]
+    #[ignore = "requires root, losetup, qemu-img, qemu-nbd, nbdinfo, and nbdcopy"]
+    fn converted_virtual_disk_writes_to_a_private_loop_device() {
+        require_tools().expect("required providers");
+        assert_eq!(
+            unsafe { libc::geteuid() },
+            0,
+            "attaching a private loop device needs root"
+        );
+        let losetup = ["/usr/sbin/losetup", "/usr/bin/losetup", "/sbin/losetup"]
+            .into_iter()
+            .find(|path| Path::new(path).is_file())
+            .expect("losetup");
+        let fixture = Fixture::new();
+        let raw = fixture.dir.join("loop.raw");
+        let mut payload = vec![0u8; 8 * 1024 * 1024];
+        payload[1024..2048].fill(0x3c);
+        std::fs::write(&raw, &payload).expect("write raw fixture");
+        let vhd = fixture.dir.join("loop.vhd");
+        let converted = Command::new("/usr/bin/qemu-img")
+            .args([
+                "convert",
+                "-f",
+                "raw",
+                "-O",
+                "vpc",
+                "-o",
+                "subformat=fixed,force_size=on",
+            ])
+            .arg(&raw)
+            .arg(&vhd)
+            .status()
+            .expect("create loop VHD");
+        assert!(converted.success(), "qemu-img convert");
+        let backing = fixture.dir.join("loop.img");
+        std::fs::write(&backing, vec![0u8; payload.len()]).expect("write loop backing");
+        let attached = Command::new(losetup)
+            .args(["--find", "--show", "--"])
+            .arg(&backing)
+            .output()
+            .expect("attach loop");
+        assert!(attached.status.success(), "losetup attach");
+        let node = String::from_utf8(attached.stdout)
+            .expect("loop name")
+            .trim()
+            .to_owned();
+        let detach = || {
+            let _ = Command::new(losetup)
+                .args(["--detach", "--", &node])
+                .status();
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let user = InvokingUser::from_uid(65534).expect("nobody");
+            let source_file = File::open(&vhd).expect("open VHD");
+            let snapshot = source_snapshot::create(&source_file, &CancellationToken::new())
+                .expect("protect source");
+            let size = inspect(
+                &snapshot,
+                ImageSourceKind::Vhd,
+                &user,
+                &CancellationToken::new(),
+                payload.len() as u64,
+            )
+            .expect("inspect");
+            assert_eq!(size, payload.len() as u64);
+            let destination = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&node)
+                .expect("open loop");
+            let source = SourceSpec {
+                path: vhd.clone(),
+                kind: ImageSourceKind::Vhd,
+                size_bytes: source_file.metadata().expect("metadata").len(),
+                decompressed_size_bytes: Some(size),
+                expected_sha256: None,
+            };
+            let mut sink: EventSink = Box::new(|_| {});
+            let receipt = write_image(
+                &destination,
+                WriteSource {
+                    file: &snapshot,
+                    spec: &source,
+                    invoking_user: Some(&user),
+                },
+                WriteMode::DdImage,
+                &CancellationToken::new(),
+                size,
+                JobId(1),
+                &mut sink,
+            )
+            .expect("write converted image to loop");
+            assert_eq!(receipt.bytes_written, payload.len() as u64);
+            drop(destination);
+            Command::new("/usr/bin/blockdev")
+                .args(["--flushbufs", "--", &node])
+                .status()
+                .ok();
+            let written = std::fs::read(&backing).expect("read loop backing");
+            assert_eq!(written, payload);
+        }));
+        detach();
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
+    }
 }

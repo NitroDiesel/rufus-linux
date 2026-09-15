@@ -54,10 +54,12 @@ Completed product work includes:
 The authoritative feature truth is
 [`CAPABILITIES.md`](CAPABILITIES.md). Recognized but blocked flows include
 ordinary non-hybrid ISO file-copy media, Windows installer media, Windows To
-Go, VHD/VHDX conversion, FreeDOS, persistence, bootloader installation, Windows
-11 customization, Secure Boot revocation checks, and drive capture. Keep these
-disabled with a reason until an end-to-end implementation and its fixtures,
-integration tests, and boot tests exist.
+Go, parent-dependent/4Kn/journal-replay VHD/VHDX, FreeDOS, persistence,
+bootloader installation, Windows 11 customization, Secure Boot revocation
+checks, and drive capture. Keep these disabled with a reason until an
+end-to-end implementation and its fixtures, integration tests, and boot tests
+exist. Supported standalone 512-byte-sector VHD/VHDX images convert when
+`qemu-nbd`, `nbdinfo`, and `nbdcopy` are installed.
 
 ## Architecture map
 

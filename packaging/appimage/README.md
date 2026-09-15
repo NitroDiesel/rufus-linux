@@ -15,7 +15,8 @@ The continuation branch links the helper library's read-only inspection API,
 not the helper executable or authorization policy. Optional VHD/VHDX capacity
 previews use host `/usr/bin/qemu-nbd` and `/usr/bin/nbdinfo` as the current user.
 Those providers are not bundled; missing tools leave recognition available
-and explain why disk size is unknown. Conversion remains blocked.
+and explain why disk size is unknown. Conversion writes still require the
+matching native helper plus host `qemu-nbd`, `nbdinfo`, and `nbdcopy`.
 
 `stage-appdir.sh` creates the AppDir from an old-glibc release binary.
 `verify-appimage.sh` extracts and audits the final artifact, including its

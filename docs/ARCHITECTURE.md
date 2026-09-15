@@ -18,9 +18,10 @@ On the VHD continuation branch, desktop analysis runs on a background thread.
 The desktop links the helper library's narrow `inspect_virtual_disk_for_user`
 API to reuse its fixed-path provider sandbox and process cleanup. That API
 requires a read-only regular descriptor and a non-root caller. It does not
-launch the privileged helper or authorize writes. Optional host `qemu-nbd` and
-`nbdinfo` provide advisory virtual capacity; execution still needs independent
-validation of a protected source. See [virtual disk work](VIRTUAL_DISKS.md).
+launch the privileged helper or authorize writes. Host `qemu-nbd` and
+`nbdinfo` provide advisory virtual capacity; `nbdcopy` is required to convert
+and write. Execution still independently validates a protected source. See
+[virtual disk work](VIRTUAL_DISKS.md).
 
 ### Operation planner
 

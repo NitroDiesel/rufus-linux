@@ -417,10 +417,11 @@ impl AppState {
                 "This ISO is not hybrid. File-copy boot media is not available yet; choose an ISOHybrid image."
                     .into(),
             ),
-            Some(ImageSourceKind::Vhd | ImageSourceKind::Vhdx) => Some(
-                "VHD/VHDX conversion is not enabled in this release; container bytes will never be copied as a disk image."
-                    .into(),
-            ),
+            Some(ImageSourceKind::Vhd | ImageSourceKind::Vhdx) => {
+                (!self.capabilities.supports(Capability::VirtualDiskWrite)).then(|| {
+                    "Install qemu-nbd, nbdinfo, and nbdcopy to write this virtual disk. Container bytes are never copied as a disk image.".into()
+                })
+            }
             Some(ImageSourceKind::Wim | ImageSourceKind::Esd) => Some(
                 "WIM/ESD files require a Windows deployment workflow and cannot be raw-written."
                     .into(),
@@ -842,10 +843,22 @@ mod tests {
             body.find("Serial: SN").expect("target identity")
                 < body.find("Image:").expect("source details")
         );
-        assert!(
-            st.build_helper_request().is_err(),
-            "virtual writes remain blocked"
-        );
+        if st.capabilities.supports(Capability::VirtualDiskWrite) {
+            let request = st.build_helper_request().expect("conversion request");
+            let rufus_helper_protocol::HelperOperation::WriteMedia { source, .. } =
+                request.operation
+            else {
+                panic!("conversion must use a media write");
+            };
+            assert_eq!(source.kind, ImageSourceKind::Vhdx);
+        } else {
+            assert!(
+                st.build_helper_request()
+                    .expect_err("missing conversion providers")
+                    .contains("qemu-nbd"),
+                "missing providers must fail closed"
+            );
+        }
 
         st.image_report
             .as_mut()
@@ -956,15 +969,13 @@ mod tests {
             st.image_report.as_ref().map(|report| report.kind),
             Some(ImageSourceKind::Vhd)
         );
-        assert!(st
-            .operation_unavailable_reason()
-            .expect("unsupported VHD reason")
-            .contains("VHD/VHDX conversion"));
-        assert!(!st.can_start);
-        assert!(st
+        let error = st
             .build_helper_request()
-            .expect_err("VHD must not produce a write request")
-            .contains("VHD/VHDX conversion"));
+            .expect_err("this footer-only fixture is not a writable virtual disk");
+        assert!(
+            error.contains("qemu-nbd") || error.contains("inspect a valid VHD/VHDX"),
+            "recognized VHD must not be raw-written: {error}"
+        );
 
         std::fs::write(&path, vec![0u8; 4096]).expect("replace with raw fixture");
         st.set_image(path.clone());
