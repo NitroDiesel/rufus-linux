@@ -1,9 +1,11 @@
 # Virtual disk conversion work in progress
 
-VHD/VHDX conversion is still blocked by the desktop and the helper's
-`validate_request` allowlist. Keep both gates closed until the requirements
-below are met. The private helper backend is implemented and tested, but is
-not a released feature or an approved way to write physical media.
+VHD/VHDX conversion is enabled for standalone 512-byte-sector images when
+`qemu-nbd`, `nbdinfo`, and `nbdcopy` are installed. The desktop Start control
+and the helper `validate_request` allowlist both require those tools. Missing
+providers fail closed with an install remedy. Container bytes are never copied
+as a disk image. Parent-dependent, 4Kn, journal-replay, and CHS-mismatched
+images remain rejected.
 
 ## Tested implementation
 
@@ -55,7 +57,7 @@ rejecting a mismatch before target preparation. It does not force a different
 QEMU size policy or repair the source. Valid legacy VPC images can therefore be
 unsupported when their footer and CHS export differ. A checksummed `vpc ` creator
 control tests rejection on newer providers too. Both native inspection and the
-private conversion path use this guard; VHD/VHDX writing stays blocked.
+private conversion path use this guard. Matching exports may be written.
 
 Local verification on 2026-09-13 passed 81 regular workspace tests, the expanded
 provider fixture as both the desktop user and root with dropped privileges,
@@ -217,16 +219,16 @@ reads separated by downstream work longer than the timeout.
   paths and source preservation; they do not cover every format variation.
 - Verify these cleanup paths on loop-backed targets and disposable physical
   media, including write failures and disconnects.
-- Native package dependencies for the conversion providers, plus loop-backed
-  and disposable physical-media confirmation of the write path, remain open.
-  Destructive confirmation now names the source after target identity,
+- Native packages declare `qemu-utils`/`qemu-img` and `libnbd`. Loop-backed
+  conversion writes are exercised as an explicit root CI test. Disposable
+  physical-media and guest-boot confirmation remain open.
+  Destructive confirmation names the source after target identity,
   distinguishes container file size from virtual disk size, omits source
   details for format-only plans, and refuses unknown or unaligned VHD/VHDX
-  capacity at plan time. A non-destructive `confirmation-preview` example
-  exists for keyboard-scroll and long-filename checks. VHD/VHDX Start remains
-  blocked, so this is not a production write-path UI.
-- Perform loop-backed and boot tests, then the disposable physical-media gate.
-- Update capability claims and release versions before publishing installers.
+  capacity at plan time. Start converts when the three providers are present.
+- Perform guest-boot tests, then a disposable physical-media smoke test.
+- Update release versions before publishing installers that advertise this
+  conversion path.
 
 The VHD guard currently requires a checksummed, version 1, 512-byte footer and
 disk type 2 or 3, with an aligned nonzero capacity matching the provider export.

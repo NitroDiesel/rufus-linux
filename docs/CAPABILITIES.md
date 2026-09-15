@@ -11,6 +11,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | Raw image write | Bounded streaming copy to an exclusively locked target | Supports `.img`, `.raw`, and other raw disk images. Source size, target identity and target capacity are rechecked. |
 | ISOHybrid disk-image write | Same raw writer | Hybrid ISO media is written byte-for-byte. Non-hybrid ISO file-copy mode is blocked. |
 | Compressed raw images | Fixed-path gzip, bzip2, xz/lzma, zstd and bsdtar providers | Decompressed output is capacity-bounded. Decoder failure or size mismatch is fatal. ZIP input should contain one disk image. |
+| VHD/VHDX conversion | Read-only `qemu-nbd` + `nbdcopy` stream of a protected source copy | Requires `qemu-nbd`, `nbdinfo`, and `nbdcopy`. Container bytes are never copied as a disk image. Parent-dependent, 4Kn, journal-replay, and ambiguous-CHS images stay rejected. |
 | Write verification | SHA-256 of the bytes streamed, followed by target readback | Success is reported only after hash match, `fsync`, and block cache flush. |
 | Cancellation | Separate helper process termination with UI event polling | Cancellation leaves an explicit warning that the target may be incomplete. |
 | MBR/GPT/super-floppy formatting | `parted`, kernel partition-table reread and udev settle | Super-floppy correctly formats the whole device. |
@@ -28,7 +29,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | Ordinary/non-hybrid ISO file-copy media | Needs audited ISO extraction, mount lifecycle, bootloader installation and fixture/QEMU coverage. |
 | Windows installer media | Depends on ISO file-copy, split-WIM support, boot files and tested UEFI:NTFS handling. |
 | Windows To Go | A WIM/ESD cannot be raw-copied. A real implementation needs partition, wimlib apply, BCD and offline-registry work. |
-| VHD/VHDX input | Container bytes are never treated as raw sectors. The private QEMU/libnbd backend has protected source copies, decoder deadlines, and selected corruption tests; remaining filesystem, UI, packaging, and boot gates still block production requests. See [virtual disk work](VIRTUAL_DISKS.md). |
+| Parent-dependent, 4Kn, journal-replay, or CHS-mismatched VHD/VHDX | The conversion path refuses these instead of repairing the source or copying container bytes. See [virtual disk work](VIRTUAL_DISKS.md). |
 | FFU apply/capture | No maintained, independently verifiable Linux servicing provider has been selected. |
 | ReFS creation | Linux has no safe production ReFS formatter. |
 | FreeDOS | Redistributable system files and exact boot-sector provenance are not packaged yet. |
@@ -46,11 +47,11 @@ filename. Renaming a fixed VHD to `.img` no longer offers it as raw media.
 The desktop also rejects unavailable operations when building a helper request.
 VHD conversion remains blocked. The published 0.1.2 packages predate these fixes.
 
-The VHD continuation branch adds asynchronous image inspection. With host
-`qemu-nbd` and `nbdinfo` installed, the desktop previews VHD/VHDX virtual capacity
-separately from container file size. Missing providers or rejected images leave
-capacity unknown with an explanation. This read-only preview does not enable
-conversion or prove the image will boot.
+Native packages now install `qemu-nbd`, `nbdinfo`, and `nbdcopy`. With those
+tools present, Start writes a converted VHD/VHDX through the existing bounded
+writer. Missing tools keep Start disabled with an install remedy. AppImage
+writes still need the matching native helper; the AppImage does not bundle
+those providers. This does not prove every guest will boot.
 
 ## Planned secondary workflows
 
