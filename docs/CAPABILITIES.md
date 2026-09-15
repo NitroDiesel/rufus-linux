@@ -7,7 +7,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | Capability | Linux implementation | Notes |
 |---|---|---|
 | Removable-device discovery | Linux sysfs and `/proc/self/mountinfo` | Automatic hotplug refresh plus a manual fallback; root, boot, home, read-only, held and unstable targets are rejected. USB HDDs and fixed disks are explicit expert opt-ins. |
-| Authorized destructive operations | Short-lived `/usr/libexec/rufus-linux-helper` through `pkexec` | The desktop never links or executes privileged disk code. Target identity is independently resolved after authorization. |
+| Authorized destructive operations | Short-lived `/usr/libexec/rufus-linux-helper` through `pkexec` | The desktop never performs privileged disk operations. Target identity is independently resolved after authorization. |
 | Raw image write | Bounded streaming copy to an exclusively locked target | Supports `.img`, `.raw`, and other raw disk images. Source size, target identity and target capacity are rechecked. |
 | ISOHybrid disk-image write | Same raw writer | Hybrid ISO media is written byte-for-byte. Non-hybrid ISO file-copy mode is blocked. |
 | Compressed raw images | Fixed-path gzip, bzip2, xz/lzma, zstd and bsdtar providers | Decompressed output is capacity-bounded. Decoder failure or size mismatch is fatal. ZIP input should contain one disk image. |
@@ -28,7 +28,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | Ordinary/non-hybrid ISO file-copy media | Needs audited ISO extraction, mount lifecycle, bootloader installation and fixture/QEMU coverage. |
 | Windows installer media | Depends on ISO file-copy, split-WIM support, boot files and tested UEFI:NTFS handling. |
 | Windows To Go | A WIM/ESD cannot be raw-copied. A real implementation needs partition, wimlib apply, BCD and offline-registry work. |
-| VHD/VHDX input | Container bytes are never treated as raw sectors. A future flow will use bounded qemu-img conversion. |
+| VHD/VHDX input | Container bytes are never treated as raw sectors. The private QEMU/libnbd backend has protected source copies, decoder deadlines, and selected corruption tests; remaining filesystem, UI, packaging, and boot gates still block production requests. See [virtual disk work](VIRTUAL_DISKS.md). |
 | FFU apply/capture | No maintained, independently verifiable Linux servicing provider has been selected. |
 | ReFS creation | Linux has no safe production ReFS formatter. |
 | FreeDOS | Redistributable system files and exact boot-sector provenance are not packaged yet. |
@@ -45,6 +45,12 @@ VHD recognition checks footer signatures as well as the leading signature and
 filename. Renaming a fixed VHD to `.img` no longer offers it as raw media.
 The desktop also rejects unavailable operations when building a helper request.
 VHD conversion remains blocked. The published 0.1.2 packages predate these fixes.
+
+The VHD continuation branch adds asynchronous image inspection. With host
+`qemu-nbd` and `nbdinfo` installed, the desktop previews VHD/VHDX virtual capacity
+separately from container file size. Missing providers or rejected images leave
+capacity unknown with an explanation. This read-only preview does not enable
+conversion or prove the image will boot.
 
 ## Planned secondary workflows
 

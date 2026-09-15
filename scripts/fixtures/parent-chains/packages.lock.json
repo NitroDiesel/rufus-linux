@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net8.0": {
+      "LTRData.DiscUtils.Vhd": {
+        "type": "Direct",
+        "requested": "[1.0.88, )",
+        "resolved": "1.0.88",
+        "contentHash": "R47rD00CNR6Zg6ccHmBYUb0+pmrujH+OsQ2bAp0SU56mrh0DpzNtLzDA10Omy2Nz979kyFaJWO+UhXo313y9DA==",
+        "dependencies": {
+          "LTRData.DiscUtils.Core": "1.0.88"
+        }
+      },
+      "LTRData.DiscUtils.Vhdx": {
+        "type": "Direct",
+        "requested": "[1.0.88, )",
+        "resolved": "1.0.88",
+        "contentHash": "Mdnge5+tSZdLE5ERXICiobVz9a9m+NheWJKBQ52+oi5rRZ9P/HyJPBIcW3yadr94i84NU1flaeouWEvd1P3i+A==",
+        "dependencies": {
+          "LTRData.DiscUtils.Core": "1.0.88"
+        }
+      },
+      "LTRData.DiscUtils.Core": {
+        "type": "Transitive",
+        "resolved": "1.0.88",
+        "contentHash": "5e5TqdnPhaANw+jR24T6ayJ1tHIIb8/kQRqnLXr4U4fNObSqia2MHXQxIlwh0p9a39yR5Wou2lgTiY+1sPKwPg==",
+        "dependencies": {
+          "LTRData.DiscUtils.Streams": "1.0.88"
+        }
+      },
+      "LTRData.DiscUtils.Streams": {
+        "type": "Transitive",
+        "resolved": "1.0.88",
+        "contentHash": "GmAU/vqUv2ZYhbNy3oo2lDt7Fv2shHXzFbEaSc6K+24z9jTWWEL+X12EaQ6uUGTZ7fMlvTKVIV3/NsRH9I4aOg==",
+        "dependencies": {
+          "LTRData.Extensions": "1.0.23"
+        }
+      },
+      "LTRData.Extensions": {
+        "type": "Transitive",
+        "resolved": "1.0.23",
+        "contentHash": "K+Lb4/siT7+K50r4kndp5QaJLgupf5zE4qe8QxqwF0uSAiZtodsiFc3+i9IQpkGGMDwi83isG9qYA3JOJrO7UA=="
+      }
+    }
+  }
+}

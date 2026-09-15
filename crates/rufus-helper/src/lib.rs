@@ -26,6 +26,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const HELPER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const DECODER_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+
+mod source_snapshot;
+mod virtual_disk;
 
 #[derive(Debug, Error)]
 pub enum HelperError {
@@ -43,6 +47,42 @@ pub enum HelperError {
     Io(#[from] io::Error),
     #[error("tool missing: {0}")]
     MissingTool(String),
+}
+
+/// Inspect virtual capacity in an unprivileged desktop process.
+///
+/// This preview is advisory: a read-only descriptor does not prevent another
+/// process from changing its inode. Execution must protect and inspect the
+/// source again before preparing the target. The descriptor's offset may move.
+pub fn inspect_virtual_disk_for_user(
+    source: &File,
+    kind: rufus_core::plan::ImageSourceKind,
+    cancel: &CancellationToken,
+) -> Result<u64, HelperError> {
+    check_cancel(cancel)?;
+    if !source.metadata()?.is_file() {
+        return Err(HelperError::Operation(
+            "virtual disk inspection requires a regular file".into(),
+        ));
+    }
+    // SAFETY: F_GETFL reads the flags of the live borrowed descriptor.
+    let flags = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    if flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_PATH != 0 {
+        return Err(HelperError::Operation(
+            "virtual disk inspection requires a readable, read-only descriptor".into(),
+        ));
+    }
+    let uid = unsafe { libc::geteuid() };
+    if uid == 0 {
+        return Err(HelperError::Operation(
+            "desktop image inspection must run as a non-root user".into(),
+        ));
+    }
+    let user = InvokingUser::from_uid(uid)?;
+    virtual_disk::inspect(source, kind, &user, cancel, u64::MAX)
 }
 
 /// Fixed absolute paths for formatters. Never taken from the environment.
@@ -457,6 +497,9 @@ pub fn validate_request(request: &HelperRequest) -> Result<(), HelperError> {
             if source.kind == rufus_core::plan::ImageSourceKind::CompressedRaw {
                 decompressor_for(&source.path)?;
             }
+            if virtual_disk::is_virtual(source.kind) {
+                virtual_disk::require_tools()?;
+            }
         }
         HelperOperation::FormatMedia { format, .. } => {
             tool_for_filesystem(format.filesystem)?;
@@ -548,17 +591,49 @@ impl ManagedChild {
     }
 
     fn try_wait(&mut self) -> Result<Option<ExitStatus>, HelperError> {
-        let status = self.child.try_wait()?;
+        if !self.reaped {
+            if !self.exit_observed()? {
+                return Ok(None);
+            }
+            // The unreaped leader reserves the PGID until the last signal.
+            self.signal_group(libc::SIGKILL)?;
+        }
+        let status = self
+            .child
+            .try_wait()
+            .map_err(|error| self.wait_error(error))?;
         if status.is_some() {
             self.reaped = true;
         }
         Ok(status)
     }
 
-    fn wait(&mut self) -> Result<ExitStatus, HelperError> {
-        let status = self.child.wait()?;
-        self.reaped = true;
-        Ok(status)
+    fn exit_observed(&mut self) -> Result<bool, HelperError> {
+        // SAFETY: waitid initializes this zeroed record without reaping our child.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                self.child.id(),
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if result != 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                return Ok(false);
+            }
+            return Err(self.wait_error(error));
+        }
+        Ok(unsafe { info.si_pid() } != 0)
+    }
+
+    fn wait_error(&mut self, error: io::Error) -> HelperError {
+        if error.raw_os_error() == Some(libc::ECHILD) {
+            self.reaped = true;
+        }
+        error.into()
     }
 
     fn signal_group(&self, signal: libc::c_int) -> io::Result<()> {
@@ -573,6 +648,7 @@ impl ManagedChild {
         }
     }
 
+    #[cfg(test)]
     fn group_exists(&self) -> io::Result<bool> {
         if unsafe { libc::kill(-self.process_group, 0) } == 0 {
             return Ok(true);
@@ -586,29 +662,34 @@ impl ManagedChild {
     }
 
     fn terminate_and_reap(&mut self) -> Result<(), HelperError> {
+        if self.reaped {
+            return Ok(());
+        }
         self.signal_group(libc::SIGTERM)?;
         let deadline = Instant::now() + Duration::from_millis(750);
         while Instant::now() < deadline {
-            if !self.reaped {
-                let _ = self.try_wait()?;
-            }
-            if !self.group_exists()? {
+            if self.exit_observed()? {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        if self.group_exists()? {
-            self.signal_group(libc::SIGKILL)?;
-        }
-        if !self.reaped {
-            let _ = self.wait()?;
-        }
+        self.signal_group(libc::SIGKILL)?;
+        let _ = self.child.wait().map_err(|error| self.wait_error(error))?;
+        self.reaped = true;
         Ok(())
     }
 
     fn wait_with_cancellation(
         &mut self,
         cancel: &CancellationToken,
+    ) -> Result<ExitStatus, HelperError> {
+        self.wait_with_deadline(cancel, None)
+    }
+
+    fn wait_with_deadline(
+        &mut self,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
     ) -> Result<ExitStatus, HelperError> {
         loop {
             if cancel.is_requested() {
@@ -617,6 +698,11 @@ impl ManagedChild {
             }
             if let Some(status) = self.try_wait()? {
                 return Ok(status);
+            }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(HelperError::Operation(
+                    "decoder did not exit before its deadline".into(),
+                ));
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -667,7 +753,7 @@ fn progress(
 
 /// Execute (or dry-run) a validated helper request.
 pub fn execute(
-    request: HelperRequest,
+    mut request: HelperRequest,
     options: ExecutionOptions,
     mut sink: EventSink,
 ) -> Result<HelperResult, HelperError> {
@@ -688,6 +774,37 @@ pub fn execute(
         }
         _ => None,
     };
+    let mut virtual_snapshot = None;
+    if !options.dry_run {
+        if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
+            if virtual_disk::is_virtual(source.kind) {
+                let original = source_file.as_ref().ok_or_else(|| {
+                    HelperError::Operation("bound source descriptor missing".into())
+                })?;
+                let snapshot = source_snapshot::create(original, &options.cancel)?;
+                let user = invoking_user
+                    .as_ref()
+                    .ok_or_else(|| HelperError::Operation("invoking user missing".into()))?;
+                let size = virtual_disk::inspect(
+                    &snapshot,
+                    source.kind,
+                    user,
+                    &options.cancel,
+                    request.target.fingerprint.size_bytes,
+                )?;
+                if source
+                    .decompressed_size_bytes
+                    .is_some_and(|expected| expected != size)
+                {
+                    return Err(HelperError::Operation(
+                        "virtual disk size changed since selection".into(),
+                    ));
+                }
+                source.decompressed_size_bytes = Some(size);
+                virtual_snapshot = Some(snapshot);
+            }
+        }
+    }
     emit(
         &mut sink,
         HelperEvent::Accepted {
@@ -860,9 +977,12 @@ pub fn execute(
                 let target = exclusive.as_ref().ok_or_else(|| {
                     HelperError::Operation("exclusive target handle was not available".into())
                 })?;
-                let source_file = source_file.as_ref().ok_or_else(|| {
-                    HelperError::Operation("bound source descriptor was not available".into())
-                })?;
+                let source_file = virtual_snapshot
+                    .as_ref()
+                    .or(source_file.as_ref())
+                    .ok_or_else(|| {
+                        HelperError::Operation("bound source descriptor was not available".into())
+                    })?;
                 Some(write_image(
                     target,
                     WriteSource {
@@ -1376,108 +1496,154 @@ fn write_image(
             set_nonblocking(stdout.as_raw_fd())?;
             decoder_child = Some(child);
             Box::new(stdout)
+        } else if virtual_disk::is_virtual(source.spec.kind) {
+            if source.spec.decompressed_size_bytes.is_none() {
+                return Err(HelperError::Operation(
+                    "virtual disk size must be inspected before writing".into(),
+                ));
+            }
+            let user = source.invoking_user.ok_or_else(|| {
+                HelperError::Operation("virtual disk decoder requires an invoking user".into())
+            })?;
+            let mut child = virtual_disk::decoder(source.file, source.spec.kind, user)?;
+            let stdout = child.child_mut().stdout.take().ok_or_else(|| {
+                HelperError::Operation("virtual disk decoder stdout missing".into())
+            })?;
+            set_nonblocking(stdout.as_raw_fd())?;
+            decoder_child = Some(child);
+            Box::new(stdout)
         } else {
             Box::new(source_reader)
         };
 
     let mut destination = target.try_clone()?;
     destination.seek(SeekFrom::Start(0))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 1024 * 1024];
-    let mut written = 0u64;
-    let started = Instant::now();
-    let mut last_progress = Instant::now();
-    loop {
+    let result = (|| {
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; 1024 * 1024];
+        let mut written = 0u64;
+        let write_limit = source
+            .spec
+            .decompressed_size_bytes
+            .unwrap_or(max_bytes)
+            .min(max_bytes);
+        let started = Instant::now();
+        let mut last_progress = Instant::now();
+        let decoder_exit_deadline = loop {
+            // Downstream writes are outside the budget; EOF keeps the remaining time.
+            let deadline = Instant::now() + DECODER_IDLE_TIMEOUT;
+            let count = read_image_chunk(&mut reader, &mut buffer, cancel, deadline)?;
+            if count == 0 {
+                break deadline;
+            }
+            written = written
+                .checked_add(count as u64)
+                .ok_or_else(|| HelperError::Operation("image size overflow".into()))?;
+            if written > write_limit {
+                return Err(HelperError::Operation(
+                    "decoded image exceeds its declared size or target capacity".into(),
+                ));
+            }
+            destination.write_all(&buffer[..count])?;
+            hasher.update(&buffer[..count]);
+            if last_progress.elapsed() >= std::time::Duration::from_millis(200) {
+                let elapsed = started.elapsed().as_secs_f64().max(0.001);
+                emit(
+                    sink,
+                    HelperEvent::Progress {
+                        job_id,
+                        stage: ProgressStage::WritingImage,
+                        unit: ProgressUnit::Bytes,
+                        completed: written,
+                        total: source.spec.decompressed_size_bytes.or_else(|| {
+                            (source.spec.kind != rufus_core::plan::ImageSourceKind::CompressedRaw)
+                                .then_some(source.spec.size_bytes)
+                        }),
+                        bytes_per_second: Some((written as f64 / elapsed) as u64),
+                        detail: Some(format!("Writing {}", source.spec.path.display())),
+                        cancellability: Cancellability::Immediate,
+                    },
+                );
+                last_progress = Instant::now();
+            }
+        };
         if cancel.is_requested() {
-            cancel_image_write(&destination, &mut decoder_child)?;
             return Err(HelperError::Cancelled);
         }
-        let count = match reader.read(&mut buffer) {
-            Ok(count) => count,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(20));
-                continue;
-            }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error.into()),
-        };
-        if count == 0 {
-            break;
-        }
-        written = written
-            .checked_add(count as u64)
-            .ok_or_else(|| HelperError::Operation("image size overflow".into()))?;
-        if written > max_bytes {
-            return Err(HelperError::Operation(
-                "decompressed image exceeds target capacity".into(),
-            ));
-        }
-        destination.write_all(&buffer[..count])?;
-        hasher.update(&buffer[..count]);
-        if last_progress.elapsed() >= std::time::Duration::from_millis(200) {
-            let elapsed = started.elapsed().as_secs_f64().max(0.001);
-            emit(
-                sink,
-                HelperEvent::Progress {
-                    job_id,
-                    stage: ProgressStage::WritingImage,
-                    unit: ProgressUnit::Bytes,
-                    completed: written,
-                    total: source.spec.decompressed_size_bytes.or_else(|| {
-                        (source.spec.kind != rufus_core::plan::ImageSourceKind::CompressedRaw)
-                            .then_some(source.spec.size_bytes)
-                    }),
-                    bytes_per_second: Some((written as f64 / elapsed) as u64),
-                    detail: Some(format!("Writing {}", source.spec.path.display())),
-                    cancellability: Cancellability::Immediate,
-                },
-            );
-            last_progress = Instant::now();
-        }
-    }
-    if cancel.is_requested() {
-        cancel_image_write(&destination, &mut decoder_child)?;
-        return Err(HelperError::Cancelled);
-    }
-    destination.sync_all()?;
 
-    if written == 0 {
-        return Err(HelperError::Operation("source image was empty".into()));
-    }
-    if source.spec.kind != rufus_core::plan::ImageSourceKind::CompressedRaw
-        && written != source.spec.size_bytes
-    {
-        return Err(HelperError::Operation(
-            "source image changed while it was being read".into(),
-        ));
-    }
-    if let Some(expected) = source.spec.decompressed_size_bytes {
-        if written != expected {
-            return Err(HelperError::Operation(format!(
-                "decompressed size mismatch: expected {expected}, wrote {written}"
-            )));
+        if written == 0 {
+            return Err(HelperError::Operation("source image was empty".into()));
         }
-    }
-    if let Some(mut child) = decoder_child {
-        let status = child.wait_with_cancellation(cancel)?;
-        if !status.success() {
+        if source.spec.kind != rufus_core::plan::ImageSourceKind::CompressedRaw
+            && !virtual_disk::is_virtual(source.spec.kind)
+            && written != source.spec.size_bytes
+        {
             return Err(HelperError::Operation(
-                "decompressor reported invalid or truncated input".into(),
+                "source image changed while it was being read".into(),
             ));
         }
+        if let Some(expected) = source.spec.decompressed_size_bytes {
+            if written != expected {
+                return Err(HelperError::Operation(format!(
+                    "decompressed size mismatch: expected {expected}, wrote {written}"
+                )));
+            }
+        }
+        if let Some(child) = decoder_child.as_mut() {
+            let status = child.wait_with_deadline(cancel, Some(decoder_exit_deadline))?;
+            if !status.success() {
+                return Err(HelperError::Operation(
+                    "decompressor reported invalid or truncated input".into(),
+                ));
+            }
+        }
+        let digest: [u8; 32] = hasher.finalize().into();
+        if let Some(expected) = &source.spec.expected_sha256 {
+            if hex_lower(&digest) != expected.to_ascii_lowercase() {
+                return Err(HelperError::Operation(
+                    "source SHA-256 did not match the expected value".into(),
+                ));
+            }
+        }
+        Ok(WriteReceipt {
+            bytes_written: written,
+            sha256: digest,
+        })
+    })();
+    let cleanup = finish_image_write(&destination, &mut decoder_child);
+    match (result, cleanup) {
+        (result, Ok(())) => result,
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(cleanup_error)) => Err(HelperError::Operation(format!(
+            "{error}; image-write cleanup failed: {cleanup_error}"
+        ))),
     }
-    let digest: [u8; 32] = hasher.finalize().into();
-    if let Some(expected) = &source.spec.expected_sha256 {
-        if hex_lower(&digest) != expected.to_ascii_lowercase() {
+}
+
+fn read_image_chunk(
+    reader: &mut impl Read,
+    buffer: &mut [u8],
+    cancel: &CancellationToken,
+    deadline: Instant,
+) -> Result<usize, HelperError> {
+    loop {
+        check_cancel(cancel)?;
+        match reader.read(buffer) {
+            Ok(count) => return Ok(count),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(error.into()),
+        }
+        if Instant::now() >= deadline {
             return Err(HelperError::Operation(
-                "source SHA-256 did not match the expected value".into(),
+                "image decoder timed out waiting for output".into(),
             ));
         }
+        std::thread::sleep(Duration::from_millis(20));
     }
-    Ok(WriteReceipt {
-        bytes_written: written,
-        sha256: digest,
-    })
 }
 
 fn set_nonblocking(fd: libc::c_int) -> Result<(), HelperError> {
@@ -1491,7 +1657,7 @@ fn set_nonblocking(fd: libc::c_int) -> Result<(), HelperError> {
     Ok(())
 }
 
-fn cancel_image_write(
+fn finish_image_write(
     destination: &File,
     decoder: &mut Option<ManagedChild>,
 ) -> Result<(), HelperError> {
@@ -1499,9 +1665,14 @@ fn cancel_image_write(
         .as_mut()
         .map_or(Ok(()), ManagedChild::terminate_and_reap);
     let sync_result = destination.sync_all();
-    decoder_result?;
-    sync_result?;
-    Ok(())
+    match (decoder_result, sync_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(error.into()),
+        (Err(error), Err(sync_error)) => Err(HelperError::Operation(format!(
+            "{error}; destination synchronization failed: {sync_error}"
+        ))),
+    }
 }
 
 fn drop_decoder_privileges(command: &mut Command, user: &InvokingUser) {
@@ -1680,6 +1851,56 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
+    #[test]
+    fn desktop_virtual_inspection_rejects_unsuitable_descriptors() {
+        let cancel = CancellationToken::new();
+        let directory = File::open(std::env::temp_dir()).expect("directory fixture");
+        let error = inspect_virtual_disk_for_user(&directory, ImageSourceKind::Vhdx, &cancel)
+            .expect_err("reject directory")
+            .to_string();
+        assert!(error.contains("requires a regular file"), "{error}");
+
+        let writable = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_TMPFILE)
+            .mode(0o600)
+            .open(std::env::temp_dir())
+            .expect("anonymous writable fixture");
+        let path_only = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_PATH)
+            .open(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+            .expect("path-only fixture");
+        for source in [&writable, &path_only] {
+            let error = inspect_virtual_disk_for_user(source, ImageSourceKind::Vhdx, &cancel)
+                .expect_err("reject unusable descriptor")
+                .to_string();
+            assert!(error.contains("readable, read-only descriptor"), "{error}");
+        }
+    }
+
+    #[test]
+    fn desktop_virtual_inspection_checks_identity_kind_and_cancellation() {
+        let source = File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+            .expect("read-only regular fixture");
+        let cancel = CancellationToken::new();
+        let error = inspect_virtual_disk_for_user(&source, ImageSourceKind::Raw, &cancel)
+            .expect_err("root and non-virtual kinds must not launch providers")
+            .to_string();
+        let expected = if unsafe { libc::geteuid() } == 0 {
+            "must run as a non-root user"
+        } else {
+            "not a virtual disk"
+        };
+        assert!(error.contains(expected), "{error}");
+        cancel.request();
+        assert!(matches!(
+            inspect_virtual_disk_for_user(&source, ImageSourceKind::Vhdx, &cancel),
+            Err(HelperError::Cancelled)
+        ));
+    }
+
     fn format_request() -> HelperRequest {
         HelperRequest {
             protocol_version: PROTOCOL_VERSION,
@@ -1786,6 +2007,169 @@ mod tests {
         assert!(child.reaped);
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
         assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+    }
+
+    #[test]
+    fn managed_child_cleans_descendants_before_reaping_the_leader() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "trap '' TERM; sleep 30 & exit 7"])
+            .stdout(Stdio::piped());
+        let mut child = ManagedChild::spawn(&mut command, "descendant fixture")
+            .expect("spawn descendant fixture");
+        let mut stdout = child.child_mut().stdout.take().expect("fixture stdout");
+        set_nonblocking(stdout.as_raw_fd()).expect("nonblocking fixture stdout");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("observe fixture leader") {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "leader did not exit");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(status.code(), Some(7));
+        child
+            .terminate_and_reap()
+            .expect("cleanup after completion");
+        child.terminate_and_reap().expect("repeat cleanup");
+        loop {
+            match stdout.read(&mut [0u8; 1]) {
+                Ok(0) => break,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "descendant retained stdout");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                result => panic!("unexpected descendant output: {result:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn managed_child_disarms_if_another_waiter_reaped_it() {
+        let mut child = ManagedChild::spawn(&mut Command::new("/bin/true"), "exit fixture")
+            .expect("spawn exit fixture");
+        child.child_mut().wait().expect("external waiter");
+        assert!(child.exit_observed().is_err());
+        assert!(child.reaped);
+        child.terminate_and_reap().expect("disarmed cleanup");
+    }
+
+    #[test]
+    fn stalled_decoder_output_times_out_and_is_cleaned_up() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "printf x; exec sleep 30"])
+            .stdout(Stdio::piped());
+        let mut child = ManagedChild::spawn(&mut command, "stalled decoder fixture")
+            .expect("spawn stalled decoder");
+        let mut stdout = child.child_mut().stdout.take().expect("decoder stdout");
+        set_nonblocking(stdout.as_raw_fd()).expect("nonblocking decoder stdout");
+        let cancel = CancellationToken::new();
+        let mut buffer = [0u8; 1];
+        assert_eq!(
+            read_image_chunk(
+                &mut stdout,
+                &mut buffer,
+                &cancel,
+                Instant::now() + Duration::from_secs(3)
+            )
+            .expect("initial output"),
+            1
+        );
+        assert_eq!(buffer, [b'x']);
+        let started = Instant::now();
+        let error = read_image_chunk(
+            &mut stdout,
+            &mut buffer,
+            &cancel,
+            Instant::now() + Duration::from_millis(40),
+        )
+        .expect_err("stalled stdout deadline");
+        assert!(error.to_string().contains("timed out waiting for output"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let mut decoder = Some(child);
+        finish_image_write(&anonymous_fixture(b"x"), &mut decoder).expect("timeout cleanup");
+        assert!(decoder.as_ref().expect("managed decoder").reaped);
+        assert_eq!(stdout.read(&mut buffer).expect("closed decoder stdout"), 0);
+    }
+
+    #[test]
+    fn decoder_exit_after_eof_has_a_deadline() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "sleep 0.2; exec 1>&-; exec sleep 30"])
+            .stdout(Stdio::piped());
+        let mut child = ManagedChild::spawn(&mut command, "closed-output decoder fixture")
+            .expect("spawn closed-output decoder");
+        let mut stdout = child.child_mut().stdout.take().expect("decoder stdout");
+        set_nonblocking(stdout.as_raw_fd()).expect("nonblocking decoder stdout");
+        let cancel = CancellationToken::new();
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(400);
+        assert_eq!(
+            read_image_chunk(&mut stdout, &mut [0u8; 1], &cancel, deadline).expect("decoder EOF"),
+            0
+        );
+        let error = child
+            .wait_with_deadline(&cancel, Some(deadline))
+            .expect_err("stalled exit deadline");
+        assert!(error.to_string().contains("did not exit"));
+        assert!(
+            started.elapsed() < Duration::from_millis(600),
+            "EOF must not restart the budget"
+        );
+        let mut decoder = Some(child);
+        let target = File::options()
+            .write(true)
+            .open("/dev/null")
+            .expect("discard device");
+        assert!(
+            finish_image_write(&target, &mut decoder).is_err(),
+            "fsync must be attempted"
+        );
+        assert!(decoder.as_ref().expect("managed decoder").reaped);
+    }
+
+    #[test]
+    fn decoder_read_budget_resets_and_cancellation_remains_immediate() {
+        struct IntermittentReader(bool);
+        impl Read for IntermittentReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.0 = !self.0;
+                if self.0 {
+                    return Err(io::ErrorKind::WouldBlock.into());
+                }
+                buffer[0] = b'x';
+                Ok(1)
+            }
+        }
+        let mut reader = IntermittentReader(false);
+        let cancel = CancellationToken::new();
+        let timeout = Duration::from_millis(60);
+        for _ in 0..2 {
+            assert_eq!(
+                read_image_chunk(
+                    &mut reader,
+                    &mut [0u8; 1],
+                    &cancel,
+                    Instant::now() + timeout
+                )
+                .expect("available output after a short wait"),
+                1
+            );
+            std::thread::sleep(timeout * 2);
+        }
+        cancel.request();
+        assert!(matches!(
+            read_image_chunk(
+                &mut reader,
+                &mut [0u8; 1],
+                &cancel,
+                Instant::now() + timeout
+            ),
+            Err(HelperError::Cancelled)
+        ));
+        assert!(!reader.0, "cancelled read must not consume input");
     }
 
     #[test]
@@ -1923,6 +2307,20 @@ mod tests {
             install_bootloader: None,
         };
         validate_request(&request).expect("validation must not open the source path");
+        if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
+            source.kind = ImageSourceKind::Vhd;
+        }
+        assert!(validate_request(&request)
+            .expect_err("VHD rollout gate")
+            .to_string()
+            .contains("cannot be safely raw-written"));
+        if let HelperOperation::WriteMedia { source, .. } = &mut request.operation {
+            source.kind = ImageSourceKind::Vhdx;
+        }
+        assert!(validate_request(&request)
+            .expect_err("VHDX rollout gate")
+            .to_string()
+            .contains("cannot be safely raw-written"));
     }
 
     #[test]
@@ -2024,6 +2422,171 @@ mod tests {
 
         let _ = std::fs::remove_file(source_path);
         let _ = std::fs::remove_file(target_path);
+    }
+
+    pub(super) fn anonymous_fixture(payload: &[u8]) -> File {
+        let mut file = File::options()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_TMPFILE)
+            .mode(0o600)
+            .open(std::env::temp_dir())
+            .expect("create anonymous fixture");
+        file.write_all(payload).expect("write anonymous fixture");
+        file
+    }
+
+    #[test]
+    fn writer_flushes_after_each_stream_error_and_preserves_both_errors() {
+        // These devices discard bytes or reject writes; neither touches a disk.
+        // Their fsync failure proves that shared cleanup was actually called.
+        let source_file = anonymous_fixture(b"abc");
+        let base = SourceSpec {
+            path: PathBuf::from("fixture.img"),
+            kind: ImageSourceKind::Raw,
+            size_bytes: 3,
+            decompressed_size_bytes: None,
+            expected_sha256: None,
+        };
+        for (case, reason) in [
+            ("limit", "exceeds"),
+            ("changed", "source image changed"),
+            ("decoded-size", "decompressed size mismatch"),
+            ("checksum", "SHA-256"),
+            ("cancel", "cancelled"),
+            ("read", "io:"),
+            ("write", "io:"),
+            ("empty", "empty"),
+        ] {
+            let mut spec = base.clone();
+            let cancel = CancellationToken::new();
+            let mut max_bytes = 10;
+            let mut input = source_file.try_clone().expect("clone source fixture");
+            match case {
+                "limit" => max_bytes = 2,
+                "changed" => spec.size_bytes = 4,
+                "decoded-size" => spec.decompressed_size_bytes = Some(4),
+                "checksum" => spec.expected_sha256 = Some("00".repeat(32)),
+                "cancel" => cancel.request(),
+                "read" => input = File::open(std::env::temp_dir()).expect("directory fixture"),
+                "empty" => input = anonymous_fixture(b""),
+                _ => {}
+            }
+            let target = File::options()
+                .write(true)
+                .open(if case == "write" {
+                    "/dev/full"
+                } else {
+                    "/dev/null"
+                })
+                .expect("open discard/error device");
+            let mut sink: EventSink = Box::new(|_| {});
+            let error = write_image(
+                &target,
+                WriteSource {
+                    file: &input,
+                    spec: &spec,
+                    invoking_user: None,
+                },
+                WriteMode::DdImage,
+                &cancel,
+                max_bytes,
+                JobId::new(8),
+                &mut sink,
+            )
+            .expect_err("operation and fsync must fail")
+            .to_string();
+            assert!(error.contains(reason), "{case}: {error}");
+            assert!(
+                error.contains("image-write cleanup failed"),
+                "{case}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn writer_declared_size_prevents_overwrite_after_partial_output() {
+        let chunk = 1024 * 1024;
+        let source_file = anonymous_fixture(&vec![0x5a; chunk + 512]);
+        let mut target = anonymous_fixture(&vec![0xa5; chunk * 2]);
+        let spec = SourceSpec {
+            path: PathBuf::from("fixture.img"),
+            kind: ImageSourceKind::Raw,
+            size_bytes: (chunk + 512) as u64,
+            decompressed_size_bytes: Some(chunk as u64),
+            expected_sha256: None,
+        };
+        let mut sink: EventSink = Box::new(|_| {});
+        let result = write_image(
+            &target,
+            WriteSource {
+                file: &source_file,
+                spec: &spec,
+                invoking_user: None,
+            },
+            WriteMode::DdImage,
+            &CancellationToken::new(),
+            (chunk * 2) as u64,
+            JobId::new(9),
+            &mut sink,
+        );
+        assert!(result
+            .expect_err("declared size limit")
+            .to_string()
+            .contains("exceeds"));
+        target.rewind().expect("rewind target fixture");
+        let mut bytes = Vec::new();
+        target.read_to_end(&mut bytes).expect("read target fixture");
+        assert!(bytes[..chunk].iter().all(|&byte| byte == 0x5a));
+        assert!(bytes[chunk..].iter().all(|&byte| byte == 0xa5));
+    }
+
+    #[test]
+    fn writer_flushes_after_decoder_reports_corrupt_input() {
+        let Ok(gzip) = find_tool(tools::GZIP) else {
+            return;
+        };
+        let mut input = anonymous_fixture(b"abc");
+        input.rewind().expect("rewind encoder input");
+        let encoded = Command::new(gzip)
+            .arg("-c")
+            .stdin(Stdio::from(input))
+            .output()
+            .expect("encode gzip fixture");
+        assert!(encoded.status.success());
+        let mut corrupt = encoded.stdout;
+        let crc_offset = corrupt.len() - 8;
+        corrupt[crc_offset] ^= 1;
+        let source_file = anonymous_fixture(&corrupt);
+        let spec = SourceSpec {
+            path: PathBuf::from("corrupt.gz"),
+            kind: ImageSourceKind::CompressedRaw,
+            size_bytes: corrupt.len() as u64,
+            decompressed_size_bytes: Some(3),
+            expected_sha256: None,
+        };
+        let target = File::options()
+            .write(true)
+            .open("/dev/null")
+            .expect("open discard device");
+        let mut sink: EventSink = Box::new(|_| {});
+        let error = write_image(
+            &target,
+            WriteSource {
+                file: &source_file,
+                spec: &spec,
+                invoking_user: None,
+            },
+            WriteMode::DdImage,
+            &CancellationToken::new(),
+            10,
+            JobId::new(10),
+            &mut sink,
+        )
+        .expect_err("corrupt gzip and failed sync")
+        .to_string();
+        assert!(error.contains("decompressor reported invalid"), "{error}");
+        assert!(error.contains("image-write cleanup failed"), "{error}");
     }
 
     #[test]

@@ -18,9 +18,11 @@ workspace = true
 [dependencies]
 rufus-core = { path = "../../crates/rufus-core", features = ["serde"] }
 rufus-helper-protocol = { path = "../../crates/rufus-helper-protocol" }
+rufus-helper = { path = "../../crates/rufus-helper" }
 rufus-linux-platform = { path = "../../crates/rufus-linux-platform" }
 rufus-image = { path = "../../crates/rufus-image" }
 slint = { version = "=1.9.2", default-features = false, features = ["backend-winit", "renderer-femtovg", "std", "accessibility", "compat-1-2"] }
+i-slint-backend-winit = { version = "=1.9.2", default-features = false }
 ashpd = "=0.9.3"
 pollster = "=0.3.0"
 libc = "0.2"

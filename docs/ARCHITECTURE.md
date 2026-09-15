@@ -14,6 +14,14 @@ The 0.1 device service reads `/sys/class/block`, `/sys/dev/block`, mountinfo, sw
 
 The image engine identifies raw, ISO, ISOHybrid, WIM/ESD, VHD/VHDX and supported compressed containers. Analysis is read-only and bounded. Only raw, compressed-raw and ISOHybrid inputs currently produce an executable write plan; recognized container/deployment formats produce a blocking explanation.
 
+On the VHD continuation branch, desktop analysis runs on a background thread.
+The desktop links the helper library's narrow `inspect_virtual_disk_for_user`
+API to reuse its fixed-path provider sandbox and process cleanup. That API
+requires a read-only regular descriptor and a non-root caller. It does not
+launch the privileged helper or authorize writes. Optional host `qemu-nbd` and
+`nbdinfo` provide advisory virtual capacity; execution still needs independent
+validation of a protected source. See [virtual disk work](VIRTUAL_DISKS.md).
+
 ### Operation planner
 
 The planner converts a device snapshot, image report, and user options into an immutable sequence. It rejects incompatible combinations before privilege is requested. The helper validates the sequence again; desktop validation is never a security boundary.
