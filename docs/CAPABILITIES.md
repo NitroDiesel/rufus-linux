@@ -18,7 +18,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | FAT/FAT32, exFAT, NTFS, UDF, ext2/3/4 | Distribution formatter tools | Only installed providers appear. Supported cluster/block sizes are passed to the formatter. |
 | Bad-block overwrite test | `badblocks -w` | Separate destructive confirmation; requires e2fsprogs. |
 | MD5, SHA-1, SHA-256, SHA-512 | RustCrypto | Runs off the UI thread. MD5/SHA-1 are comparison hashes, never trust decisions. |
-| Light and dark presentation | Device Workbench Slint UI | Scrollable at small window sizes, with prominent device identity and a continuous Windows-style write-progress track. |
+| Light and dark presentation | Device Workbench Slint UI | Fixed-size 560x720 dialog laid out like Rufus; content scrolls when Expert options are open. Device identity is shown in the device list and the destructive confirmation, with a continuous write-progress track. |
 | Arch, Debian and Fedora integration | PKGBUILD, complete Debian metadata, RPM spec, desktop/AppStream/polkit metadata | Release URLs and checksums are finalized by release automation. |
 | Portable x86_64 desktop | AppImage built against glibc 2.28 with FUSE extraction fallback | Inspection and checksums need no installation. Writes still require the root-owned helper from a matching native package. |
 

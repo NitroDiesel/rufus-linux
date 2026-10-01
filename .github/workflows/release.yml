@@ -232,7 +232,9 @@ jobs:
       - name: Stage and package AppImage
         env:
           APPIMAGETOOL_SHA256: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
-          RUNTIME_SHA256: 1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf
+          # Pinned to a tagged runtime: the `continuous` tag is republished upstream.
+          RUNTIME_TAG: "20251108"
+          RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
         run: |
           appdir="$RUNNER_TEMP/RufusLinux.AppDir"
           packaging/appimage/stage-appdir.sh \
@@ -242,7 +244,7 @@ jobs:
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
             -o "$RUNNER_TEMP/appimagetool"
           curl -fL --retry 3 \
-            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            "https://github.com/AppImage/type2-runtime/releases/download/$RUNTIME_TAG/runtime-x86_64" \
             -o "$RUNNER_TEMP/runtime-x86_64"
           printf '%s  %s\n' "$APPIMAGETOOL_SHA256" "$RUNNER_TEMP/appimagetool" |
             sha256sum --check
