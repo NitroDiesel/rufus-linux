@@ -1,20 +1,21 @@
-// Device Workbench — neat hierarchy, signature write-track, clear danger states.
-import { ScrollView, CheckBox, Slider, Palette } from "std-widgets.slint";
+// Device Workbench in the T3 Code skin: header bar, flat cards, footer actions.
+import { Slider, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import {
-    WorkbenchButton, ToolButton, StatusBadge, SectionHeader, ModalOverlay,
-    LabeledComboBox, LabeledLineEdit, TargetPlate, WriteTrack, HelperLabel, FieldLabel
+    WorkbenchButton, ToolButton, StatusBadge, SectionHeader, ModalOverlay, DialogPanel,
+    Card, Callout, CheckRow, SelectField, LabeledComboBox, LabeledLineEdit,
+    WriteTrack, HelperLabel, FieldLabel
 } from "components.slint";
 
 export component AppWindow inherits Window {
     title: "Rufus Linux";
-    preferred-width: 560px;
-    preferred-height: 720px;
-    min-width: 480px;
-    min-height: 560px;
+    // Fixed-size dialog like upstream Rufus: no resizing, no maximizing.
+    width: 560px;
+    height: 720px;
     background: Theme.canvas;
     icon: @image-url("../../../assets/icons/rufus-linux-64.png");
     init => {
+        Theme.window-height = root.height;
         Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
     }
     changed dark-mode => {
@@ -37,6 +38,7 @@ export component AppWindow inherits Window {
     in-out property <bool> image-inspecting: false;
     property <bool> modal-open: root.show-confirm || root.show-log || root.show-about;
     property <bool> can-configure: !root.is-busy && !root.image-inspecting && !root.modal-open;
+    property <bool> has-device: root.device-name != "No device selected";
 
     in-out property <[string]> partition-choices;
     in-out property <string> partition-scheme: "GPT";
@@ -76,7 +78,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-about: false;
     in-out property <bool> show-advanced: false;
     in-out property <string> capability-hint: "";
-    in-out property <string> app-version: "0.1.3";
+    in-out property <string> app-version: "0.1.4";
 
     // —— Callbacks ——
     callback refresh-devices();
@@ -100,318 +102,336 @@ export component AppWindow inherits Window {
     callback option-changed();
     callback close-clicked();
 
-    HorizontalLayout {
-        Rectangle { width: max(0px, (root.width - 760px) / 2); }
-        VerticalLayout {
-            horizontal-stretch: 1;
-            padding: Theme.space-4;
-            spacing: Theme.space-3;
-
-        // Header
-        HorizontalLayout {
-            height: Theme.icon-button-size;
-            vertical-stretch: 0;
-            spacing: Theme.space-3;
-            Rectangle { horizontal-stretch: 1; }
-            ToolButton { icon: root.dark-mode ? @image-url("../../../assets/icons/toolbar/theme-sun.svg") : @image-url("../../../assets/icons/toolbar/theme.svg"); label: "Switch theme"; enabled: !root.modal-open; clicked => { root.toggle-theme(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/checksum.svg"); label: "Checksums"; enabled: root.image-path != "" && root.can-configure; clicked => { root.compute-checksums(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/log.svg"); label: "Log"; enabled: !root.modal-open; selected: root.show-log; clicked => { root.toggle-log(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/settings.svg"); label: "Advanced"; enabled: !root.modal-open; selected: root.show-advanced; clicked => { root.toggle-advanced(); } }
-            ToolButton { icon: @image-url("../../../assets/icons/toolbar/about.svg"); label: "About"; enabled: !root.modal-open; selected: root.show-about; clicked => { root.toggle-about(); } }
-        }
-
-        ScrollView {
-            enabled: !root.modal-open;
+    VerticalLayout {
+        // Scrollable workbench
+        Rectangle {
             vertical-stretch: 1;
-            viewport-height: workbench.preferred-height;
-            workbench := VerticalLayout {
-                width: parent.width;
-                spacing: Theme.space-3;
+            clip: true;
+            workbench-scroll := Flickable {
+                interactive: !root.modal-open;
+                viewport-width: self.width;
+                viewport-height: workbench.preferred-height;
+                // Keep the offset in range when a section collapses.
+                changed viewport-height => {
+                    self.viewport-y = clamp(self.viewport-y, min(0px, self.height - self.viewport-height), 0px);
+                }
+                workbench := VerticalLayout {
+                    width: workbench-scroll.width;
+                    padding-left: Theme.space-4;
+                    padding-right: Theme.space-4;
+                    padding-top: Theme.space-4;
+                    padding-bottom: Theme.space-3;
+                    spacing: Theme.space-3;
 
-        // Drive
-        Rectangle {
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.border;
-            background: Theme.surface;
-            VerticalLayout {
-                padding: Theme.space-4;
-                spacing: Theme.space-3;
-                SectionHeader { title: "Drive"; }
-                HorizontalLayout {
-                    spacing: Theme.space-2;
-                    LabeledComboBox {
-                        horizontal-stretch: 1;
-                        label: "Device";
-                        choices: root.device-labels;
-                        value: root.device-labels[root.selected-device];
-                        enabled: root.can-configure && root.device-name != "No device selected";
-                        selected(v) => {
-                            root.device-selected(v);
+                    // Drive properties
+                    Card {
+                        SectionHeader { title: "Drive properties"; }
+                        VerticalLayout {
+                            spacing: Theme.label-gap;
+                            FieldLabel { label: "Device"; }
+                            HorizontalLayout {
+                                spacing: Theme.space-2;
+                                SelectField {
+                                    horizontal-stretch: 1;
+                                    controlled: true;
+                                    accessible-name: "Device";
+                                    choices: root.device-labels;
+                                    value: root.device-labels[root.selected-device];
+                                    enabled: root.can-configure && root.has-device;
+                                    selected(v) => { root.device-selected(v); }
+                                }
+                                WorkbenchButton {
+                                    text: "";
+                                    icon: @image-url("../../../assets/icons/toolbar/refresh.svg");
+                                    compact: true;
+                                    enabled: root.can-configure;
+                                    accessible-name: "Refresh devices";
+                                    clicked => { root.refresh-devices(); }
+                                }
+                            }
+                        }
+                        if root.device-risky: Callout {
+                            message: root.device-name + " is not ordinary removable media. Check the target before writing.";
+                            tone: "warning";
+                        }
+                        VerticalLayout {
+                            spacing: Theme.label-gap;
+                            FieldLabel { label: "Boot selection"; }
+                            HorizontalLayout {
+                                spacing: Theme.space-2;
+                                SelectField {
+                                    horizontal-stretch: 1;
+                                    accessible-name: "Boot selection";
+                                    choices: root.boot-choices;
+                                    value <=> root.boot-selection;
+                                    enabled: root.can-configure;
+                                    selected(v) => { root.boot-selected(v); }
+                                }
+                                if root.boot-selection == "Disk or ISO image" || root.boot-selection == "Windows To Go": WorkbenchButton {
+                                    text: "Select…";
+                                    height: Theme.field-height;
+                                    enabled: root.can-configure;
+                                    accessible-name: "Select image";
+                                    clicked => { root.select-image(); }
+                                }
+                            }
+                            if root.image-path != "" && (root.boot-selection == "Disk or ISO image" || root.boot-selection == "Windows To Go"): HorizontalLayout {
+                                padding-top: 2px;
+                                spacing: 6px;
+                                accessible-role: text;
+                                accessible-label: "Image " + root.image-path;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Image {
+                                        width: 14px;
+                                        height: 14px;
+                                        source: @image-url("../../../assets/icons/toolbar/file.svg");
+                                        colorize: Theme.muted;
+                                    }
+                                }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.image-path;
+                                    color: Theme.text;
+                                    font-family: Theme.data-font;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                            if root.image-path != "" && root.image-summary != "": HelperLabel { message: root.image-summary; }
+                        }
+                        if root.image-notes != "": HelperLabel { message: root.image-notes; }
+                        HorizontalLayout {
+                            spacing: Theme.space-3;
+                            LabeledComboBox {
+                                horizontal-stretch: 1;
+                                label: "Partition scheme";
+                                choices: root.partition-choices;
+                                value <=> root.partition-scheme;
+                                enabled: root.can-configure;
+                                selected(v) => { root.partition-selected(v); }
+                            }
+                            LabeledComboBox {
+                                horizontal-stretch: 1;
+                                label: "Target system";
+                                choices: root.target-choices;
+                                value <=> root.target-system;
+                                enabled: root.can-configure;
+                                selected(v) => { root.target-selected(v); }
+                            }
+                        }
+                        if root.capability-hint != "": Callout {
+                            message: root.capability-hint;
+                            tone: "danger";
                         }
                     }
-                    VerticalLayout {
-                        vertical-stretch: 1;
-                        Rectangle { vertical-stretch: 1; }
-                        WorkbenchButton {
-                            text: "";
-                            icon: @image-url("../../../assets/icons/toolbar/refresh.svg");
-                            compact: true;
+
+                    // Format options
+                    Card {
+                        SectionHeader { title: "Format options"; }
+                        LabeledLineEdit {
+                            label: "Volume label";
+                            value <=> root.volume-label;
                             enabled: root.can-configure;
-                            accessible-name: "Refresh devices";
-                            clicked => { root.refresh-devices(); }
+                        }
+                        HorizontalLayout {
+                            spacing: Theme.space-3;
+                            LabeledComboBox {
+                                horizontal-stretch: 1;
+                                label: "File system";
+                                choices: root.filesystem-choices;
+                                value <=> root.filesystem;
+                                enabled: root.can-configure;
+                                selected(v) => { root.filesystem-selected(v); }
+                            }
+                            LabeledComboBox {
+                                horizontal-stretch: 1;
+                                label: "Cluster size";
+                                choices: root.cluster-choices;
+                                value <=> root.cluster-size;
+                                enabled: root.can-configure;
+                                selected(v) => { root.cluster-selected(v); }
+                            }
+                        }
+                        if root.persistence-enabled: VerticalLayout {
+                            spacing: Theme.label-gap;
+                            FieldLabel { label: "Persistence (" + round(root.persistence-gb * 10) / 10 + " GB)"; }
+                            Slider {
+                                minimum: 0;
+                                maximum: max(root.persistence-max-gb, 0.1);
+                                value <=> root.persistence-gb;
+                                enabled: root.can-configure;
+                                released(v) => { root.persistence-changed(v); }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: Theme.space-3;
+                            VerticalLayout {
+                                // Equal halves line up with the select columns above.
+                                width: (parent.width - Theme.space-3) / 2;
+                                spacing: Theme.space-2;
+                                CheckRow {
+                                    text: "Quick format";
+                                    checked <=> root.quick-format;
+                                    enabled: root.can-configure;
+                                    toggled => { root.option-changed(); }
+                                }
+                                CheckRow {
+                                    text: "Check device for bad blocks";
+                                    checked <=> root.check-bad-blocks;
+                                    enabled: root.can-configure;
+                                    toggled => { root.option-changed(); }
+                                }
+                            }
+                            VerticalLayout {
+                                // Equal halves line up with the select columns above.
+                                width: (parent.width - Theme.space-3) / 2;
+                                alignment: start;
+                                CheckRow {
+                                    text: "Verify once written";
+                                    checked <=> root.verify-write;
+                                    enabled: root.can-configure;
+                                    toggled => { root.option-changed(); }
+                                }
+                            }
                         }
                     }
-                }
-                TargetPlate {
-                    device-name: root.device-name;
-                    device-path: root.device-path;
-                    capacity: root.device-capacity;
-                    destructive: root.device-risky;
-                }
-            }
-        }
 
-        // Boot selection
-        Rectangle {
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.border;
-            background: Theme.surface;
-            VerticalLayout {
-                padding: Theme.space-4;
-                spacing: Theme.space-3;
-                SectionHeader { title: "Boot selection"; }
-                LabeledComboBox {
-                    label: "Boot selection";
-                    choices: root.boot-choices;
-                    value <=> root.boot-selection;
-                    enabled: root.can-configure;
-                    selected(v) => { root.boot-selected(v); }
-                }
-                if root.boot-selection == "Disk or ISO image" || root.boot-selection == "Windows To Go": HorizontalLayout {
-                    spacing: Theme.space-2;
-                    alignment: center;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: Theme.space-1;
-                        FieldLabel { label: "Image"; }
-                        Text {
-                            text: root.image-path == "" ? "No file selected" : root.image-path;
-                            color: root.image-path == "" ? Theme.muted : Theme.text;
-                            font-family: Theme.data-font;
-                            font-size: 12px;
-                            overflow: elide;
+                    // Advanced (collapsed by default)
+                    if root.show-advanced: Card {
+                        tone: "warning";
+                        SectionHeader { title: "Expert options"; }
+                        Callout {
+                            message: "These options can expose disks that hold system data. Use only with disposable media.";
+                            tone: "warning";
                         }
-                        if root.image-summary != "": Text {
-                            text: root.image-summary;
+                        CheckRow {
+                            text: "List USB hard drives";
+                            checked <=> root.list-usb-hdd;
+                            enabled: root.can-configure;
+                            toggled => { root.option-changed(); root.refresh-devices(); }
+                        }
+                        CheckRow {
+                            text: "List fixed / internal disks (dangerous)";
+                            checked <=> root.list-fixed-disks;
+                            enabled: root.can-configure;
+                            toggled => { root.option-changed(); root.refresh-devices(); }
+                        }
+                    }
+
+                    // Status / write track
+                    Card {
+                        SectionHeader {
+                            title: "Status";
+                            StatusBadge {
+                                text: root.status-tone == "error" ? "FAILED"
+                                    : root.status-phase == "CANCELLED" ? "CANCELLED"
+                                    : root.status-phase == "DONE" ? "DONE"
+                                    : root.is-busy ? "BUSY"
+                                    : root.can-start ? "READY" : "IDLE";
+                                tone: root.status-tone == "error" ? "danger"
+                                    : root.status-phase == "CANCELLED" || root.is-busy ? "warning"
+                                    : root.status-phase == "DONE" || root.can-start ? "success" : "neutral";
+                            }
+                        }
+                        WriteTrack {
+                            phase: root.status-phase;
+                            operation: root.status-operation;
+                            progress: root.status-progress;
+                            telemetry: root.status-telemetry;
+                            tone: root.status-tone;
+                            active: root.status-active;
+                        }
+                        Text {
+                            text: root.status-line;
                             color: Theme.muted;
                             font-family: Theme.body-font;
-                            font-size: 11px;
+                            font-size: 12px;
                             wrap: word-wrap;
                         }
                     }
-                    WorkbenchButton {
-                        text: "Select";
-                        primary: true;
-                        enabled: root.can-configure;
-                        clicked => { root.select-image(); }
-                    }
                 }
-                if root.image-notes != "": HelperLabel { message: root.image-notes; }
-                if root.capability-hint != "": HelperLabel {
-                    message: root.capability-hint;
-                    is-error: true;
+            }
+
+            // Thin overlay scrollbar. The drag strip stays put while the
+            // thumb moves, so pointer deltas map linearly to viewport-y.
+            if workbench-scroll.viewport-height > workbench-scroll.height: Rectangle {
+                property <length> track: workbench-scroll.height - 8px;
+                property <length> range: workbench-scroll.viewport-height - workbench-scroll.height;
+                property <length> thumb: max(32px, self.track * workbench-scroll.height / workbench-scroll.viewport-height);
+                x: parent.width - 14px;
+                width: 14px;
+                height: parent.height;
+                Rectangle {
+                    x: 5px;
+                    y: 4px + (parent.track - parent.thumb) * clamp(-workbench-scroll.viewport-y / parent.range, 0, 1);
+                    width: 6px;
+                    height: parent.thumb;
+                    border-radius: 3px;
+                    background: strip.pressed || strip.has-hover ? Theme.muted : Theme.input;
+                }
+                strip := TouchArea {
+                    enabled: !root.modal-open;
+                    property <length> start-y;
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down { self.start-y = workbench-scroll.viewport-y; }
+                    }
+                    moved => {
+                        workbench-scroll.viewport-y = clamp(
+                            self.start-y - (self.mouse-y - self.pressed-y) * parent.range / max(1px, parent.track - parent.thumb),
+                            -parent.range, 0px);
+                    }
                 }
             }
         }
 
-        // Format options
+        // Footer: tools on the left, actions on the right, as in Rufus.
         Rectangle {
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.border;
-            background: Theme.surface;
-            VerticalLayout {
-                padding: Theme.space-4;
-                spacing: Theme.space-3;
-                SectionHeader { title: "Format options"; }
-                HorizontalLayout {
-                    spacing: Theme.space-3;
-                    LabeledComboBox {
-                        horizontal-stretch: 1;
-                        label: "Partition scheme";
-                        choices: root.partition-choices;
-                        value <=> root.partition-scheme;
-                        enabled: root.can-configure;
-                        selected(v) => { root.partition-selected(v); }
-                    }
-                    LabeledComboBox {
-                        horizontal-stretch: 1;
-                        label: "Target system";
-                        choices: root.target-choices;
-                        value <=> root.target-system;
-                        enabled: root.can-configure;
-                        selected(v) => { root.target-selected(v); }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: Theme.space-3;
-                    LabeledComboBox {
-                        horizontal-stretch: 1;
-                        label: "File system";
-                        choices: root.filesystem-choices;
-                        value <=> root.filesystem;
-                        enabled: root.can-configure;
-                        selected(v) => { root.filesystem-selected(v); }
-                    }
-                    LabeledComboBox {
-                        horizontal-stretch: 1;
-                        label: "Cluster size";
-                        choices: root.cluster-choices;
-                        value <=> root.cluster-size;
-                        enabled: root.can-configure;
-                        selected(v) => { root.cluster-selected(v); }
-                    }
-                }
-                LabeledLineEdit {
-                    label: "Volume label";
-                    value <=> root.volume-label;
-                    enabled: root.can-configure;
-                }
-                if root.persistence-enabled: VerticalLayout {
-                    spacing: Theme.space-1;
-                    FieldLabel { label: "Persistence (" + round(root.persistence-gb * 10) / 10 + " GB)"; }
-                    Slider {
-                        minimum: 0;
-                        maximum: max(root.persistence-max-gb, 0.1);
-                        value <=> root.persistence-gb;
-                        enabled: root.can-configure;
-                        released(v) => { root.persistence-changed(v); }
-                    }
-                }
-                VerticalLayout {
-                    spacing: Theme.space-2;
-                    CheckBox {
-                        text: "Quick format";
-                        checked <=> root.quick-format;
-                        enabled: root.can-configure;
-                        toggled => { root.option-changed(); }
-                    }
-                    CheckBox {
-                        text: "Check device for bad blocks";
-                        checked <=> root.check-bad-blocks;
-                        enabled: root.can-configure;
-                        toggled => { root.option-changed(); }
-                    }
-                    CheckBox {
-                        text: "Verify once written";
-                        checked <=> root.verify-write;
-                        enabled: root.can-configure;
-                        toggled => { root.option-changed(); }
-                    }
-                }
+            height: Theme.control-height + 2 * Theme.space-3;
+            vertical-stretch: 0;
+            background: Theme.chrome;
+            Rectangle {
+                y: 0px;
+                height: Theme.border-width;
+                background: Theme.border;
             }
-        }
-
-        // Advanced (collapsed by default)
-        if root.show-advanced: Rectangle {
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.warning;
-            background: Theme.surface;
-            VerticalLayout {
-                padding: Theme.space-4;
+            HorizontalLayout {
+                padding-left: Theme.space-3;
+                padding-right: Theme.space-4;
+                padding-top: Theme.space-3;
+                padding-bottom: Theme.space-3;
                 spacing: Theme.space-2;
-                SectionHeader { title: "Expert options"; }
-                HelperLabel {
-                    message: "These options can expose disks that hold system data. Use only with disposable media.";
-                    is-error: false;
-                }
-                CheckBox {
-                    text: "List USB hard drives";
-                    checked <=> root.list-usb-hdd;
-                    enabled: root.can-configure;
-                    toggled => { root.option-changed(); root.refresh-devices(); }
-                }
-                CheckBox {
-                    text: "List fixed / internal disks (dangerous)";
-                    checked <=> root.list-fixed-disks;
-                    enabled: root.can-configure;
-                    toggled => { root.option-changed(); root.refresh-devices(); }
-                }
-            }
-        }
-
-        // Status / write track
-        Rectangle {
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.border;
-            background: Theme.surface;
-            VerticalLayout {
-                padding: Theme.space-4;
-                spacing: Theme.space-3;
                 HorizontalLayout {
-                    height: 40px;
-                    vertical-stretch: 0;
-                    alignment: center;
-                    SectionHeader { title: "Status"; horizontal-stretch: 1; }
-                    StatusBadge {
-                        text: root.status-tone == "error" ? "FAILED"
-                            : root.status-phase == "CANCELLED" ? "CANCELLED"
-                            : root.status-phase == "DONE" ? "DONE"
-                            : root.is-busy ? "BUSY"
-                            : root.can-start ? "READY" : "IDLE";
-                        tone: root.status-tone == "error" ? "danger"
-                            : root.status-phase == "CANCELLED" || root.is-busy ? "warning"
-                            : root.status-phase == "DONE" || root.can-start ? "success" : "neutral";
-                    }
+                    spacing: 2px;
+                    padding-top: (Theme.control-height - Theme.icon-button-size) / 2;
+                    padding-bottom: (Theme.control-height - Theme.icon-button-size) / 2;
+                    ToolButton { icon: @image-url("../../../assets/icons/toolbar/about.svg"); label: "About"; enabled: !root.modal-open; selected: root.show-about; clicked => { root.toggle-about(); } }
+                    ToolButton { icon: @image-url("../../../assets/icons/toolbar/settings.svg"); label: "Advanced"; enabled: !root.modal-open; selected: root.show-advanced; clicked => { root.toggle-advanced(); } }
+                    ToolButton { icon: @image-url("../../../assets/icons/toolbar/checksum.svg"); label: "Checksums"; enabled: root.image-path != "" && root.can-configure; clicked => { root.compute-checksums(); } }
+                    ToolButton { icon: @image-url("../../../assets/icons/toolbar/log.svg"); label: "Log"; enabled: !root.modal-open; selected: root.show-log; clicked => { root.toggle-log(); } }
+                    ToolButton { icon: root.dark-mode ? @image-url("../../../assets/icons/toolbar/theme-sun.svg") : @image-url("../../../assets/icons/toolbar/theme.svg"); label: "Switch theme"; enabled: !root.modal-open; clicked => { root.toggle-theme(); } }
                 }
-                WriteTrack {
-                    phase: root.status-phase;
-                    operation: root.status-operation;
-                    progress: root.status-progress;
-                    telemetry: root.status-telemetry;
-                    tone: root.status-tone;
-                    active: root.status-active;
+                Rectangle { horizontal-stretch: 1; }
+                if root.is-busy: WorkbenchButton {
+                    text: "Cancel";
+                    danger: true;
+                    enabled: !root.modal-open;
+                    clicked => { root.cancel-clicked(); }
                 }
-                Text {
-                    text: root.status-line;
-                    color: Theme.muted;
-                    font-family: Theme.body-font;
-                    font-size: 12px;
-                    wrap: word-wrap;
+                if !root.is-busy: WorkbenchButton {
+                    text: "Close";
+                    enabled: !root.modal-open;
+                    clicked => { root.close-clicked(); }
+                }
+                WorkbenchButton {
+                    text: root.boot-selection == "Non bootable" ? "Format device" : "Write image";
+                    primary: true;
+                    enabled: root.can-start && root.can-configure;
+                    clicked => { root.start-clicked(); }
                 }
             }
         }
-            }
-        }
-
-        // Actions
-        HorizontalLayout {
-            spacing: Theme.space-3;
-            WorkbenchButton {
-                text: "Close";
-                enabled: !root.is-busy && !root.modal-open;
-                clicked => { root.close-clicked(); }
-            }
-            Rectangle { horizontal-stretch: 1; }
-            if root.is-busy: WorkbenchButton {
-                text: "Cancel";
-                danger: true;
-                enabled: !root.modal-open;
-                clicked => { root.cancel-clicked(); }
-            }
-            WorkbenchButton {
-                text: root.boot-selection == "Non bootable" ? "Format device" : "Write image";
-                primary: true;
-                enabled: root.can-start && root.can-configure;
-                clicked => { root.start-clicked(); }
-            }
-        }
-        }
-        Rectangle { width: max(0px, (root.width - 760px) / 2); }
     }
 
     // Confirm overlay
@@ -427,15 +447,12 @@ export component AppWindow inherits Window {
             if confirm-cancel.has-keyboard-focus { confirm-accept.focus-button(); }
             else { confirm-cancel.focus-button(); }
         }
-        Rectangle {
-            width: min(420px, parent.width - 48px);
-            height: min(420px, parent.height - 48px);
+        DialogPanel {
+            tone: "danger";
+            width: min(440px, parent.width - 48px);
+            height: min(440px, parent.height - 48px);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.danger;
-            background: Theme.surface-raised;
             VerticalLayout {
                 padding: Theme.space-5;
                 spacing: Theme.space-4;
@@ -443,24 +460,24 @@ export component AppWindow inherits Window {
                     text: root.confirm-title;
                     color: Theme.danger;
                     font-family: Theme.display-font;
-                    font-size: 18px;
-                    font-weight: 700;
+                    font-size: 16px;
+                    font-weight: 600;
                 }
                 Rectangle {
                     vertical-stretch: 1;
                     clip: true;
                     border-radius: Theme.control-radius;
-                    background: Theme.canvas;
+                    background: Theme.inset;
                     border-width: Theme.border-width;
                     border-color: Theme.border;
                     confirm-scroll := Flickable {
                         width: parent.width;
                         height: parent.height;
-                        viewport-height: confirm-copy.preferred-height + Theme.space-3;
+                        viewport-height: confirm-copy.preferred-height + Theme.space-6;
                         confirm-copy := Text {
-                            x: Theme.space-2;
-                            y: Theme.space-2;
-                            width: parent.width - Theme.space-4;
+                            x: Theme.space-3;
+                            y: Theme.space-3;
+                            width: parent.width - Theme.space-6;
                             text: root.confirm-body;
                             color: Theme.text;
                             font-family: Theme.body-font;
@@ -470,7 +487,7 @@ export component AppWindow inherits Window {
                     }
                 }
                 HorizontalLayout {
-                    spacing: Theme.space-3;
+                    spacing: Theme.space-2;
                     Rectangle { horizontal-stretch: 1; }
                     confirm-cancel := WorkbenchButton {
                         text: "Cancel";
@@ -497,20 +514,18 @@ export component AppWindow inherits Window {
         dismiss => { root.toggle-log(); }
         restore-focus => { log-close.focus-button(); }
         advance-focus => { log-close.focus-button(); }
-        Rectangle {
-            width: min(500px, parent.width - 32px);
-            height: min(420px, parent.height - 32px);
+        DialogPanel {
+            width: min(560px, parent.width - 32px);
+            height: min(460px, parent.height - 32px);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.border;
-            background: Theme.surface-raised;
             VerticalLayout {
                 padding: Theme.space-4;
                 spacing: Theme.space-3;
                 HorizontalLayout {
+                    spacing: Theme.space-2;
                     Text {
+                        horizontal-stretch: 1;
                         text: "Log";
                         color: Theme.text;
                         font-family: Theme.display-font;
@@ -518,7 +533,6 @@ export component AppWindow inherits Window {
                         font-weight: 600;
                         vertical-alignment: center;
                     }
-                    Rectangle { horizontal-stretch: 1; }
                     log-close := WorkbenchButton {
                         text: "Close";
                         initial-focus: true;
@@ -529,15 +543,17 @@ export component AppWindow inherits Window {
                 }
                 Rectangle {
                     vertical-stretch: 1;
+                    clip: true;
                     border-radius: Theme.control-radius;
-                    background: Theme.canvas;
+                    background: Theme.inset;
                     border-width: Theme.border-width;
                     border-color: Theme.border;
-                    ScrollView {
-                        viewport-height: log-body.preferred-height + 16px;
+                    Flickable {
+                        viewport-height: log-body.preferred-height + Theme.space-6;
                         log-body := Text {
-                            x: Theme.space-2;
-                            width: parent.width - 16px;
+                            x: Theme.space-3;
+                            y: Theme.space-3;
+                            width: parent.width - Theme.space-6;
                             text: root.log-text == "" ? "Log is empty." : root.log-text;
                             color: Theme.muted;
                             font-family: Theme.data-font;
@@ -555,30 +571,38 @@ export component AppWindow inherits Window {
         dismiss => { root.toggle-about(); }
         restore-focus => { about-close.focus-button(); }
         advance-focus => { about-close.focus-button(); }
-        Rectangle {
-            width: min(400px, parent.width - 48px);
-            height: min(320px, parent.height - 48px);
+        DialogPanel {
+            width: min(420px, parent.width - 48px);
+            height: min(about-layout.preferred-height, parent.height - 48px);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            border-radius: Theme.section-radius;
-            border-width: Theme.border-width;
-            border-color: Theme.border;
-            background: Theme.surface-raised;
-            VerticalLayout {
+            about-layout := VerticalLayout {
                 padding: Theme.space-5;
                 spacing: Theme.space-3;
-                Text {
-                    text: "Rufus Linux";
-                    color: Theme.text;
-                    font-family: Theme.display-font;
-                    font-size: 20px;
-                    font-weight: 700;
-                }
-                Text {
-                    text: "Version " + root.app-version;
-                    color: Theme.muted;
-                    font-family: Theme.data-font;
-                    font-size: 12px;
+                HorizontalLayout {
+                    spacing: Theme.space-3;
+                    Image {
+                        width: 48px;
+                        height: 48px;
+                        source: @image-url("../../../assets/icons/rufus-linux-48.png");
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text {
+                            text: "Rufus Linux";
+                            color: Theme.text;
+                            font-family: Theme.display-font;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Version " + root.app-version;
+                            color: Theme.muted;
+                            font-family: Theme.data-font;
+                            font-size: 12px;
+                        }
+                    }
                 }
                 Text {
                     text: "Independent Linux port inspired by Rufus. Formats and writes bootable removable media under GPLv3. Not affiliated with upstream Rufus maintainers.";
@@ -595,6 +619,7 @@ export component AppWindow inherits Window {
                     wrap: word-wrap;
                 }
                 HorizontalLayout {
+                    padding-top: Theme.space-2;
                     Rectangle { horizontal-stretch: 1; }
                     about-close := WorkbenchButton {
                         text: "Close";

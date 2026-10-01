@@ -18,7 +18,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | FAT/FAT32, exFAT, NTFS, UDF, ext2/3/4 | Distribution formatter tools | Only installed providers appear. Supported cluster/block sizes are passed to the formatter. |
 | Bad-block overwrite test | `badblocks -w` | Separate destructive confirmation; requires e2fsprogs. |
 | MD5, SHA-1, SHA-256, SHA-512 | RustCrypto | Runs off the UI thread. MD5/SHA-1 are comparison hashes, never trust decisions. |
-| Light and dark presentation | Device Workbench Slint UI | Scrollable at small window sizes, with prominent device identity and a continuous Windows-style write-progress track. |
+| Light and dark presentation | Device Workbench Slint UI | Fixed-size 560x720 dialog laid out like Rufus; content scrolls when Expert options are open. Device identity is shown in the device list and the destructive confirmation, with a continuous write-progress track. |
 | Arch, Debian and Fedora integration | PKGBUILD, complete Debian metadata, RPM spec, desktop/AppStream/polkit metadata | Release URLs and checksums are finalized by release automation. |
 | Portable x86_64 desktop | AppImage built against glibc 2.28 with FUSE extraction fallback | Inspection and checksums need no installation. Writes still require the root-owned helper from a matching native package. |
 
@@ -39,6 +39,14 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | Windows 11 setup customization | Requires generated unattend files, offline WIM/registry edits and versioned fixtures. |
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
+
+## Changes in 0.1.4
+
+The desktop workbench adopts a T3 Code–style skin in a fixed-size,
+non-maximizable window laid out like upstream Rufus. It fixes centered section
+titles, device details, and image controls; clipped action labels; and cards
+hidden under the scrollbar. No capability moved between available, blocked, and
+planned.
 
 ## Changes in 0.1.3
 

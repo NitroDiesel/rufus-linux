@@ -18,10 +18,10 @@ Debian/Ubuntu, and Fedora. Feature parity means implementing an upstream concept
 safely on Linux; it does not mean exposing a control before its full operation
 is implemented and verified.
 
-## Current baseline: 0.1.3
+## Current baseline: 0.1.4
 
-Version 0.1.3 is the continuation baseline. Its public installers belong in the
-[v0.1.3 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.3).
+Version 0.1.4 is the continuation baseline. Its public installers belong in the
+[v0.1.4 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.4).
 
 Completed product work includes:
 
@@ -145,11 +145,28 @@ changing AppImage contents or launch behavior.
 ## UI and product behavior
 
 The visual direction is a compact “Device Workbench,” not a clone of the
-Windows window chrome. Preserve these resolved decisions:
+Windows window chrome. Since 0.1.4 its skin follows T3 Code: a neutral
+`#0a0a0a`/`#fcfcfc` canvas, hairline borders, flat 12-pixel-radius cards, the
+desktop default sans font, and one indigo-blue primary action. Its window and
+layout follow upstream Rufus (`IDD_DIALOG` uses `DS_MODALFRAME |
+WS_MINIMIZEBOX` without `WS_THICKFRAME`): a fixed 560x720 logical-pixel dialog
+that can be minimized but not resized or maximized, with Drive properties,
+Format options, and Status sections. Content that does not fit, such as Expert
+options, scrolls inside the window. Tokens live in
+`apps/rufus-linux/ui/theme.slint`. The std-widgets palette cannot be restyled
+in Slint 1.9, so selects, text fields, checkboxes, and the workbench scrollbar
+are custom components in `components.slint`. Selects step through choices with
+Up/Down/Home/End and open their list with Space, Enter, or Alt+Down. Preserve
+these resolved decisions:
 
 - no redundant in-content “Rufus Linux / Device Workbench” title block;
-- a right-aligned, evenly spaced toolbar and a refresh control aligned with the
-  device selector;
+- a footer bar with evenly spaced About, Advanced, Checksums, Log, and theme
+  tools on the left and Close/Cancel plus the primary action on the right, as
+  in upstream Rufus; image Select sits beside the boot selection, and refresh
+  sits beside the device selector at the same field height;
+- section titles, device details, and image controls are left-aligned. Avoid
+  `alignment: center` on a horizontal layout that relies on a stretching
+  spacer; Slint then gives the spacer zero width and centers everything;
 - normalized 36-pixel action buttons and 13-pixel action labels, with visible
   focus rings and Space/Enter activation;
 - Log, About, and destructive confirmation overlays block all interaction with
@@ -160,9 +177,9 @@ Windows window chrome. Preserve these resolved decisions:
   packages, and AppImage at its exact source sizes.
 
 For UI work, use the `frontend-design` skill and a bounded UI review subagent
-when the agent environment provides them. Verify both themes at the minimum
-560x720 window and maximized size, including keyboard traversal and modal click
-blocking. Keep the UI truthful: unavailable choices stay disabled or absent
+when the agent environment provides them. Verify both themes in the fixed
+560x720 window at scale factors 1, 1.25, and 2, including keyboard traversal,
+select lists near the bottom edge, and modal click blocking. Keep the UI truthful: unavailable choices stay disabled or absent
 with a concise reason.
 
 ## Known continuation points

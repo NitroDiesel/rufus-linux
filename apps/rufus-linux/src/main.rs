@@ -38,7 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Match AppWindow's preferred size before Slint creates the GLX drawable.
+    // Match AppWindow's fixed size before Slint creates the GLX drawable. Like
+    // upstream Rufus, the window can be minimized but not resized or maximized.
     // Other explicit backend selections retain Slint's normal selection behavior.
     let backend = std::env::var("SLINT_BACKEND").unwrap_or_default();
     if matches!(
@@ -47,6 +48,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         let backend = i_slint_backend_winit::Backend::builder()
             .with_window_attributes_hook(|attributes| {
+                use i_slint_backend_winit::winit::window::WindowButtons;
+                let attributes = attributes
+                    .with_resizable(false)
+                    .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE);
                 let size = i_slint_backend_winit::winit::dpi::LogicalSize::new(560.0, 720.0);
                 let scale = std::env::var("SLINT_SCALE_FACTOR")
                     .ok()

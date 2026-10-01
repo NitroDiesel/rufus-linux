@@ -1,4 +1,3 @@
-import { ComboBox, LineEdit } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export component FieldLabel inherits Text {
@@ -7,8 +6,9 @@ export component FieldLabel inherits Text {
     color: Theme.text;
     font-family: Theme.body-font;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
     vertical-alignment: center;
+    overflow: elide;
 }
 
 export component HelperLabel inherits Text {
@@ -21,27 +21,74 @@ export component HelperLabel inherits Text {
     wrap: word-wrap;
 }
 
+// Tinted inline alert. Tones: neutral, warning, danger.
+export component Callout inherits Rectangle {
+    in property <string> message;
+    in property <string> tone: "neutral";
+    border-radius: Theme.control-radius;
+    border-width: Theme.border-width;
+    border-color: tone == "danger" ? Theme.danger.with-alpha(0.32)
+        : tone == "warning" ? Theme.warning.with-alpha(0.32) : Theme.border;
+    background: tone == "danger" ? Theme.danger-soft : (tone == "warning" ? Theme.warning-soft : Theme.inset);
+    accessible-role: text;
+    accessible-label: message;
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        padding-top: Theme.space-2;
+        padding-bottom: Theme.space-2;
+        spacing: Theme.space-2;
+        VerticalLayout {
+            padding-top: 6px;
+            Rectangle {
+                width: 6px;
+                height: 6px;
+                border-radius: 3px;
+                background: root.tone == "danger" ? Theme.danger : (root.tone == "warning" ? Theme.warning : Theme.muted);
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.message;
+            color: root.tone == "danger" ? Theme.danger : (root.tone == "warning" ? Theme.warning : Theme.muted);
+            font-family: Theme.body-font;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// Card title row. Extra children (badges, counters) sit on the right edge.
 export component SectionHeader inherits HorizontalLayout {
     in property <string> title;
-    height: 40px;
-    spacing: Theme.space-3;
-    alignment: center;
+    height: 22px;
+    spacing: Theme.space-2;
 
     Text {
-        height: 24px;
-        vertical-stretch: 0;
+        horizontal-stretch: 1;
         text: root.title;
         color: Theme.text;
         font-family: Theme.display-font;
-        font-size: 18px;
+        font-size: 13px;
         font-weight: 600;
         vertical-alignment: center;
+        overflow: elide;
     }
+    @children
+}
 
-    Rectangle {
-        height: Theme.high-contrast ? 2px : 1px;
-        horizontal-stretch: 1;
-        background: Theme.border;
+export component Card inherits Rectangle {
+    in property <string> tone: "neutral";
+    border-radius: Theme.section-radius;
+    border-width: Theme.border-width;
+    border-color: tone == "warning" ? Theme.warning.with-alpha(0.4) : Theme.border;
+    background: Theme.surface;
+
+    VerticalLayout {
+        padding: Theme.space-3 + 2px;
+        spacing: Theme.space-3;
+        @children
     }
 }
 
@@ -63,18 +110,23 @@ export component WorkbenchButton inherits Rectangle {
         if root.enabled { button-focus.focus(); }
     }
 
-    height: Theme.control-height;
-    min-width: compact ? 36px : 96px;
+    property <bool> has-icon: root.icon.width > 0 && root.icon.height > 0;
+    property <color> ink: !enabled ? Theme.muted
+        : primary ? Theme.accent-ink
+        : danger ? (touch.pressed ? Theme.accent-ink : Theme.danger)
+        : Theme.text;
+
+    height: compact ? Theme.field-height : Theme.control-height;
+    min-width: compact ? Theme.field-height : max(88px, label.preferred-width + 2 * Theme.space-4);
     horizontal-stretch: 0;
     vertical-stretch: 0;
     border-radius: Theme.control-radius;
-    border-width: button-focus.has-focus ? 2px : (primary ? 0px : Theme.border-width);
-    border-color: button-focus.has-focus ? Theme.focus : (danger ? Theme.danger : (touch.has-hover ? Theme.muted : Theme.border));
-    background: !enabled ? Theme.track
-        : danger ? (touch.pressed ? Theme.danger : (touch.has-hover ? Theme.danger-soft : Theme.surface-raised))
-        : primary ? (touch.pressed ? Theme.accent-strong : Theme.accent)
-        : touch.has-hover ? Theme.accent-soft : Theme.surface-raised;
-    opacity: enabled ? 1.0 : 0.48;
+    border-width: primary && enabled ? 0px : Theme.border-width;
+    border-color: danger && enabled ? Theme.danger.with-alpha(0.45) : Theme.input;
+    background: !enabled ? (primary ? Theme.track : transparent)
+        : primary ? (touch.pressed ? Theme.accent-strong : (touch.has-hover ? Theme.accent.brighter(0.08) : Theme.accent))
+        : danger ? (touch.pressed ? Theme.danger-solid : (touch.has-hover ? Theme.danger-soft : transparent))
+        : touch.pressed ? Theme.pressed : (touch.has-hover ? Theme.hover : transparent);
     accessible-role: button;
     accessible-label: accessible-name;
     accessible-enabled: enabled;
@@ -84,31 +136,43 @@ export component WorkbenchButton inherits Rectangle {
         if root.initial-focus { button-focus.focus(); }
     }
 
-    if root.icon.width > 0 && root.icon.height > 0: Image {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: 18px;
-        height: 18px;
-        source: root.icon;
-        colorize: root.danger ? Theme.danger : (root.primary ? Theme.accent-ink : Theme.text);
+    Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: parent.border-radius + 3px;
+        border-width: 2px;
+        border-color: button-focus.has-focus ? Theme.focus.with-alpha(0.55) : transparent;
     }
 
-    if root.icon.width == 0 || root.icon.height == 0: Text {
+    if root.has-icon: Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        source: root.icon;
+        colorize: root.ink;
+    }
+
+    label := Text {
         x: 0px;
         y: 0px;
         width: parent.width;
         height: parent.height;
-        text: root.text;
-        color: root.danger ? Theme.danger : (root.primary ? Theme.accent-ink : Theme.text);
+        visible: !root.has-icon;
+        text: root.has-icon ? "" : root.text;
+        color: root.ink;
         font-family: Theme.body-font;
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 
     touch := TouchArea {
         enabled: root.enabled;
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 
@@ -173,6 +237,20 @@ export component ModalOverlay inherits FocusScope {
     @children
 }
 
+// Dialog surface used inside a ModalOverlay.
+export component DialogPanel inherits Rectangle {
+    in property <string> title;
+    in property <string> tone: "neutral";
+    border-radius: Theme.section-radius;
+    border-width: Theme.border-width;
+    border-color: tone == "danger" ? Theme.danger.with-alpha(0.45) : Theme.border;
+    background: Theme.surface-raised;
+    drop-shadow-blur: 24px;
+    drop-shadow-offset-y: 8px;
+    drop-shadow-color: #00000059;
+    clip: false;
+}
+
 export component ToolButton inherits Rectangle {
     in property <image> icon;
     in property <string> label;
@@ -185,10 +263,13 @@ export component ToolButton inherits Rectangle {
     horizontal-stretch: 0;
     vertical-stretch: 0;
     border-radius: Theme.control-radius;
-    background: selected ? Theme.selection-soft : (touch.has-hover ? Theme.surface-raised : transparent);
-    border-width: tool-focus.has-focus ? 2px : (selected ? Theme.border-width : 0px);
-    border-color: tool-focus.has-focus ? Theme.focus : (selected ? Theme.selection : transparent);
-    opacity: enabled ? 1 : 0.42;
+    background: selected ? Theme.selection-soft
+        : !enabled ? transparent
+        : touch.pressed ? Theme.pressed
+        : touch.has-hover ? Theme.hover : transparent;
+    border-width: tool-focus.has-focus ? 2px : 0px;
+    border-color: tool-focus.has-focus ? Theme.focus.with-alpha(0.7) : transparent;
+    opacity: enabled ? 1 : 0.4;
     accessible-role: button;
     accessible-label: label;
     accessible-enabled: enabled;
@@ -198,14 +279,15 @@ export component ToolButton inherits Rectangle {
     Image {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
         source: root.icon;
-        colorize: root.selected ? Theme.selection : Theme.muted;
+        colorize: root.selected ? Theme.selection : (touch.has-hover && root.enabled ? Theme.text : Theme.muted);
     }
 
     touch := TouchArea {
         enabled: root.enabled;
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 
@@ -225,25 +307,348 @@ export component ToolButton inherits Rectangle {
 export component StatusBadge inherits Rectangle {
     in property <string> text;
     in property <string> tone: "neutral";
-    height: 24px;
-    min-width: badge-text.preferred-width + 18px;
-    border-radius: 12px;
-    border-width: Theme.border-width;
-    border-color: tone == "warning" ? Theme.warning : (tone == "danger" ? Theme.danger : (tone == "success" ? Theme.accent : Theme.border));
-    background: tone == "warning" ? Theme.warning-soft : (tone == "danger" ? Theme.danger-soft : (tone == "success" ? Theme.accent-soft : Theme.surface-raised));
+    property <color> ink: tone == "warning" ? Theme.warning
+        : tone == "danger" ? Theme.danger
+        : tone == "success" ? Theme.success : Theme.muted;
+    height: 22px;
+    width: badge-text.preferred-width + 26px;
+    horizontal-stretch: 0;
+    border-radius: 6px;
+    background: tone == "warning" ? Theme.warning-soft
+        : tone == "danger" ? Theme.danger-soft
+        : tone == "success" ? Theme.success-soft : Theme.track;
 
+    Rectangle {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: root.ink;
+    }
     badge-text := Text {
-        x: 0px;
+        x: 18px;
         y: 0px;
-        width: parent.width;
         height: parent.height;
         text: root.text;
-        color: root.tone == "warning" ? Theme.warning : (root.tone == "danger" ? Theme.danger : (root.tone == "success" ? Theme.accent : Theme.muted));
+        color: root.ink;
         font-family: Theme.body-font;
         font-size: 11px;
         font-weight: 600;
-        horizontal-alignment: center;
         vertical-alignment: center;
+    }
+}
+
+// Single-line text input styled like a T3 Code field.
+export component TextField inherits Rectangle {
+    in property <bool> enabled: true;
+    in property <string> accessible-name;
+    in-out property <string> text <=> input.text;
+    out property <bool> has-focus: input.has-focus;
+
+    height: Theme.field-height;
+    border-radius: Theme.control-radius;
+    border-width: Theme.border-width;
+    border-color: input.has-focus ? Theme.focus : Theme.input;
+    background: enabled ? Theme.inset : transparent;
+    opacity: enabled ? 1 : 0.7;
+    forward-focus: input;
+
+    Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: parent.border-radius + 3px;
+        border-width: 3px;
+        border-color: input.has-focus ? Theme.focus.with-alpha(0.22) : transparent;
+    }
+
+    input := TextInput {
+        x: Theme.space-3;
+        width: parent.width - 2 * Theme.space-3;
+        height: parent.height;
+        enabled: root.enabled;
+        single-line: true;
+        color: Theme.text;
+        selection-background-color: Theme.selection.with-alpha(0.35);
+        selection-foreground-color: Theme.text;
+        font-family: Theme.body-font;
+        font-size: 13px;
+        vertical-alignment: center;
+        accessible-role: text-input;
+        accessible-label: root.accessible-name;
+    }
+}
+
+// Select control. Arrow keys step through choices without opening the list;
+// Space, Enter, or Alt+Down opens it. A controlled field (the write target)
+// never changes on a bare arrow key: arrows open the list instead.
+export component SelectField inherits Rectangle {
+    in property <[string]> choices;
+    in property <bool> enabled: true;
+    in property <string> accessible-name;
+    // A controlled field only reports selections; the owner updates `value`.
+    in property <bool> controlled: false;
+    in property <string> placeholder: "";
+    in-out property <string> value;
+    callback selected(string);
+
+    property <int> current-index: -1;
+    min-width: 72px;
+    preferred-width: 160px;
+    property <bool> can-open: root.enabled && root.choices.length > 0;
+
+    function pick(index: int) {
+        if index < 0 || index >= root.choices.length { return; }
+        if !root.controlled {
+            root.value = root.choices[index];
+            root.current-index = index;
+        }
+        root.selected(root.choices[index]);
+    }
+
+    height: Theme.field-height;
+    border-radius: Theme.control-radius;
+    border-width: Theme.border-width;
+    border-color: field-focus.has-focus ? Theme.focus : Theme.input;
+    background: !enabled ? transparent : (touch.has-hover ? Theme.hover : Theme.inset);
+    opacity: enabled ? 1 : 0.7;
+    accessible-role: combobox;
+    accessible-label: accessible-name;
+    accessible-value: value;
+    accessible-enabled: enabled;
+    accessible-action-default => { if root.can-open { list.show(); } }
+    forward-focus: field-focus;
+
+    for choice[i] in root.choices: Rectangle {
+        width: 0px;
+        height: 0px;
+        visible: false;
+        property <bool> current: choice == root.value;
+        init => { if self.current { root.current-index = i; } }
+        changed current => { if self.current { root.current-index = i; } }
+    }
+
+    Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: parent.border-radius + 3px;
+        border-width: 3px;
+        border-color: field-focus.has-focus ? Theme.focus.with-alpha(0.22) : transparent;
+    }
+
+    Text {
+        x: Theme.space-3;
+        width: parent.width - Theme.space-3 - 32px;
+        height: parent.height;
+        text: root.value == "" ? root.placeholder : root.value;
+        color: root.value == "" ? Theme.muted : Theme.text;
+        font-family: Theme.body-font;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Image {
+        x: parent.width - 26px;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        source: @image-url("../../../assets/icons/toolbar/chevron.svg");
+        colorize: Theme.muted;
+    }
+
+    touch := TouchArea {
+        enabled: root.can-open;
+        mouse-cursor: pointer;
+        clicked => {
+            field-focus.focus();
+            list.show();
+        }
+    }
+
+    field-focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if !root.can-open { return reject; }
+            if event.text == Key.Escape {
+                list.close();
+                return reject;
+            }
+            if (event.text == Key.DownArrow || event.text == Key.UpArrow)
+                && (event.modifiers.alt || root.controlled) {
+                list.show();
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.pick(min(root.current-index + 1, root.choices.length - 1));
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                root.pick(max(root.current-index - 1, 0));
+                return accept;
+            }
+            if event.text == " " || event.text == "\n" {
+                list.show();
+                return accept;
+            }
+            if root.controlled { return reject; }
+            if event.text == Key.Home {
+                root.pick(0);
+                return accept;
+            }
+            if event.text == Key.End {
+                root.pick(root.choices.length - 1);
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    list := PopupWindow {
+        x: 0px;
+        y: root.absolute-position.y + root.height + 4px + self.height <= Theme.window-height - 8px
+            ? root.height + 4px : -self.height - 4px;
+        width: root.width;
+        height: min(root.choices.length * 32px + 10px, 260px);
+
+        Rectangle {
+            border-radius: Theme.control-radius + 2px;
+            border-width: Theme.border-width;
+            border-color: Theme.border;
+            background: Theme.surface-raised;
+            drop-shadow-blur: 16px;
+            drop-shadow-offset-y: 4px;
+            drop-shadow-color: #00000040;
+            clip: true;
+
+            Flickable {
+                x: 4px;
+                y: 5px;
+                width: parent.width - 8px;
+                height: parent.height - 10px;
+                viewport-height: root.choices.length * 32px;
+                for choice[i] in root.choices: Rectangle {
+                    y: i * 32px;
+                    width: parent.width;
+                    height: 32px;
+                    border-radius: 6px;
+                    background: item-touch.has-hover ? Theme.hover : transparent;
+                    Text {
+                        x: Theme.space-2;
+                        width: parent.width - Theme.space-2 - 28px;
+                        height: parent.height;
+                        text: choice;
+                        color: Theme.text;
+                        font-family: Theme.body-font;
+                        font-size: 13px;
+                        font-weight: choice == root.value ? 500 : 400;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if choice == root.value: Image {
+                        x: parent.width - 24px;
+                        y: (parent.height - self.height) / 2;
+                        width: 14px;
+                        height: 14px;
+                        source: @image-url("../../../assets/icons/toolbar/check.svg");
+                        colorize: Theme.accent;
+                    }
+                    item-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.pick(i); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component CheckRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in-out property <bool> checked: false;
+    callback toggled;
+
+    function toggle() {
+        if !root.enabled { return; }
+        root.checked = !root.checked;
+        root.toggled();
+    }
+
+    height: 24px;
+    min-width: box.width + Theme.space-2 + caption.preferred-width;
+    opacity: enabled ? 1 : 0.7;
+    accessible-role: checkbox;
+    accessible-label: text;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-enabled: enabled;
+    accessible-action-default => { root.toggle(); }
+    forward-focus: check-focus;
+
+    box := Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        border-width: root.checked ? 0px : Theme.border-width;
+        border-color: Theme.dark-mode ? Theme.input : #a1a1aa;
+        background: root.checked ? Theme.accent : (touch.has-hover ? Theme.hover : Theme.inset);
+
+        Rectangle {
+            x: -3px;
+            y: -3px;
+            width: parent.width + 6px;
+            height: parent.height + 6px;
+            border-radius: 6px;
+            border-width: 2px;
+            border-color: check-focus.has-focus ? Theme.focus.with-alpha(0.55) : transparent;
+        }
+        if root.checked: Image {
+            x: 2px;
+            y: 2px;
+            width: 12px;
+            height: 12px;
+            source: @image-url("../../../assets/icons/toolbar/check.svg");
+            colorize: Theme.accent-ink;
+        }
+    }
+
+    caption := Text {
+        x: box.width + Theme.space-2;
+        height: parent.height;
+        text: root.text;
+        color: Theme.text;
+        font-family: Theme.body-font;
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            check-focus.focus();
+            root.toggle();
+        }
+    }
+
+    check-focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" {
+                root.toggle();
+                return accept;
+            }
+            return reject;
+        }
     }
 }
 
@@ -254,12 +659,12 @@ export component LabeledLineEdit inherits VerticalLayout {
     in property <bool> invalid: false;
     in property <string> accessible-name: label;
     in-out property <string> value <=> input.text;
-    spacing: Theme.space-1;
+    spacing: Theme.label-gap;
 
     FieldLabel { label: root.label; }
-    input := LineEdit {
+    input := TextField {
         enabled: root.enabled;
-        accessible-label: root.accessible-name;
+        accessible-name: root.accessible-name;
     }
     if root.helper != "": HelperLabel { message: root.helper; is-error: root.invalid; }
 }
@@ -268,70 +673,27 @@ export component LabeledComboBox inherits VerticalLayout {
     in property <string> label;
     in property <[string]> choices;
     in property <bool> enabled: true;
+    in property <bool> controlled: false;
     in property <string> helper: "";
-    in-out property <string> value <=> combo.current-value;
+    in-out property <string> value <=> combo.value;
     callback selected(string);
-    spacing: Theme.space-1;
+    min-width: 72px;
+    preferred-width: 160px;
+    spacing: Theme.label-gap;
 
     FieldLabel { label: root.label; }
-    combo := ComboBox {
-        model: root.choices;
+    combo := SelectField {
+        choices: root.choices;
         enabled: root.enabled;
-        accessible-label: root.label;
+        controlled: root.controlled;
+        accessible-name: root.label;
         selected(value) => { root.selected(value); }
     }
     if root.helper != "": HelperLabel { message: root.helper; }
 }
 
-export component TargetPlate inherits Rectangle {
-    in property <string> device-name: "SanDisk Ultra";
-    in property <string> device-path: "/dev/sdb";
-    in property <string> capacity: "31.9 GB";
-    in property <bool> destructive: false;
-
-    height: 54px;
-    border-radius: Theme.control-radius;
-    border-width: Theme.border-width;
-    border-color: destructive ? Theme.warning : Theme.border;
-    background: destructive ? Theme.warning-soft : Theme.surface-raised;
-    accessible-role: groupbox;
-    accessible-label: "Target device " + device-name + ", " + device-path + ", " + capacity;
-
-    HorizontalLayout {
-        padding-left: Theme.space-3;
-        padding-right: Theme.space-3;
-        spacing: Theme.space-3;
-        alignment: center;
-        VerticalLayout {
-            alignment: center;
-            Text {
-                text: root.device-name;
-                color: Theme.text;
-                font-family: Theme.body-font;
-                font-size: 13px;
-                font-weight: 600;
-            }
-            Text {
-                text: root.device-path;
-                color: Theme.muted;
-                font-family: Theme.data-font;
-                font-size: 11px;
-            }
-        }
-        Rectangle { horizontal-stretch: 1; }
-        Text {
-            text: root.capacity;
-            color: destructive ? Theme.warning : Theme.text;
-            font-family: Theme.data-font;
-            font-size: 12px;
-            font-weight: 600;
-            vertical-alignment: center;
-        }
-    }
-}
-
-// Rufus's signature progress element: exactly sixteen flash-memory blocks.
-export component WriteTrack inherits Rectangle {
+// Continuous progress trough with phase and telemetry above it.
+export component WriteTrack inherits VerticalLayout {
     in property <string> phase: "READY";
     in property <string> operation: "Ready to write";
     in property <float> progress: 0;
@@ -339,11 +701,11 @@ export component WriteTrack inherits Rectangle {
     in property <string> tone: "neutral";
     in property <bool> active: false;
 
-    height: 72px;
-    border-radius: Theme.control-radius;
-    border-width: Theme.border-width;
-    border-color: tone == "error" ? Theme.danger : (tone == "warning" ? Theme.warning : Theme.border);
-    background: Theme.surface-raised;
+    property <color> fill: tone == "error" ? Theme.danger
+        : tone == "warning" ? Theme.warning
+        : phase == "DONE" ? Theme.success : Theme.accent;
+
+    spacing: Theme.space-2;
     accessible-role: progress-indicator;
     accessible-label: operation;
     accessible-value: progress;
@@ -351,45 +713,45 @@ export component WriteTrack inherits Rectangle {
     accessible-value-maximum: 100;
     accessible-description: phase + ", " + round(progress) + " percent, " + telemetry;
 
-    VerticalLayout {
-        padding: Theme.space-2;
+    HorizontalLayout {
+        height: 18px;
         spacing: Theme.space-2;
-
-        HorizontalLayout {
-            Text {
-                text: root.phase;
-                color: root.tone == "error" ? Theme.danger : (root.tone == "warning" ? Theme.warning : (root.active ? Theme.accent : Theme.muted));
-                font-family: Theme.data-font;
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.6px;
-                vertical-alignment: center;
-            }
-            Rectangle { horizontal-stretch: 1; }
-            Text {
-                text: root.telemetry;
-                color: Theme.text;
-                font-family: Theme.data-font;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
+        Text {
+            horizontal-stretch: 1;
+            text: root.phase;
+            color: root.tone == "error" ? Theme.danger : (root.tone == "warning" ? Theme.warning : (root.active ? Theme.focus : Theme.muted));
+            font-family: Theme.data-font;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            vertical-alignment: center;
+            overflow: elide;
         }
+        Text {
+            horizontal-stretch: 0;
+            text: root.telemetry != "" ? root.telemetry : round(root.progress) + "%";
+            color: Theme.muted;
+            font-family: Theme.data-font;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
 
-        progress-trough := Rectangle {
-            height: 18px;
-            clip: true;
-            border-radius: 3px;
-            border-width: Theme.high-contrast ? 2px : 1px;
-            border-color: Theme.border;
-            background: Theme.track;
+    Rectangle {
+        height: 8px;
+        clip: true;
+        border-radius: 4px;
+        border-width: Theme.high-contrast ? 1px : 0px;
+        border-color: Theme.border;
+        background: Theme.track;
 
-            Rectangle {
-                width: max(0px, min(parent.width, parent.width * root.progress / 100));
-                height: parent.height;
-                background: root.tone == "error" ? Theme.danger
-                    : root.tone == "warning" ? Theme.warning
-                    : Theme.accent;
-            }
+        Rectangle {
+            x: 0px;
+            width: max(0px, min(parent.width, parent.width * root.progress / 100));
+            height: parent.height;
+            border-radius: 4px;
+            background: root.fill;
+            animate width { duration: Theme.reduced-motion ? 0ms : 180ms; easing: ease-out; }
         }
     }
 }

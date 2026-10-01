@@ -1,33 +1,45 @@
-// Device Workbench design tokens. The host may bind dark-mode, high-contrast,
-// and reduced-motion to the desktop environment.
+// Device Workbench design tokens, modelled on the T3 Code skin: neutral
+// canvas, hairline borders, flat cards, and a single indigo-blue primary.
+// The host may bind dark-mode, high-contrast, and reduced-motion.
 export global Theme {
     in-out property <bool> dark-mode: true;
     in-out property <bool> high-contrast: false;
     in-out property <bool> reduced-motion: false;
+    // Set by AppWindow so popups can open upward near the bottom edge.
+    in-out property <length> window-height: 720px;
 
-    out property <color> canvas: dark-mode ? #10171e : #f2f5f6;
-    out property <color> surface: dark-mode ? #15212a : #e8edef;
-    out property <color> surface-raised: dark-mode ? #192631 : #ffffff;
-    out property <color> border: dark-mode ? #344653 : #b8c5ca;
-    out property <color> text: dark-mode ? #edf2f4 : #16232c;
-    out property <color> muted: dark-mode ? #9babb4 : #5a6c76;
-    out property <color> selection: dark-mode ? #4c8dff : #1f67d8;
-    out property <color> accent: dark-mode ? #43c7a5 : #087d67;
-    out property <color> accent-strong: dark-mode ? #62d4b7 : #066351;
-    out property <color> warning: dark-mode ? #f0b35a : #9a5a00;
-    out property <color> danger: dark-mode ? #ff6b64 : #b4232d;
-    out property <color> focus: dark-mode ? #76a7ff : #1f67d8;
-    out property <color> track: dark-mode ? #2a3740 : #d7e0e3;
-    out property <color> accent-ink: dark-mode ? #071a16 : #ffffff;
-    out property <color> scrim: #00000099;
+    out property <color> canvas: dark-mode ? #0a0a0a : #fcfcfc;
+    out property <color> chrome: canvas;
+    out property <color> surface: dark-mode ? #111111 : #ffffff;
+    out property <color> surface-raised: dark-mode ? #171717 : #ffffff;
+    out property <color> inset: dark-mode ? #ffffff08 : #fafafa;
+    out property <color> input: dark-mode ? #ffffff2e : #d4d4d8;
+    out property <color> border: dark-mode ? (high-contrast ? #ffffff40 : #ffffff14) : (high-contrast ? #a1a1aa : #e4e4e7);
+    out property <color> text: dark-mode ? #f5f5f5 : #27272a;
+    out property <color> muted: dark-mode ? #8a8a8a : #71717b;
+    out property <color> hover: dark-mode ? #ffffff0d : #f4f4f5;
+    out property <color> pressed: dark-mode ? #ffffff17 : #e4e4e7;
+    out property <color> selection: dark-mode ? #346bf1 : #1b4ed8;
+    out property <color> accent: dark-mode ? #346bf1 : #1b4ed8;
+    out property <color> accent-strong: dark-mode ? #2a5ad6 : #1740b4;
+    out property <color> success: dark-mode ? #00d492 : #007a55;
+    out property <color> warning: dark-mode ? #ffb900 : #bb4d00;
+    out property <color> danger: dark-mode ? #ff6467 : #c10007;
+    out property <color> danger-solid: dark-mode ? #e5383f : #dc2626;
+    out property <color> focus: dark-mode ? #5588fb : #1b4ed8;
+    out property <color> track: dark-mode ? #ffffff12 : #f4f4f5;
+    out property <color> accent-ink: #ffffff;
+    out property <color> scrim: dark-mode ? #000000b3 : #18181b66;
 
-    out property <brush> accent-soft: dark-mode ? #27c2a32e : #087e6b24;
-    out property <brush> selection-soft: dark-mode ? #4c8dff2e : #1f67d824;
-    out property <brush> danger-soft: dark-mode ? #ea6a6a24 : #b4232d1f;
-    out property <brush> warning-soft: dark-mode ? #f0b35a24 : #9a5a001f;
+    out property <brush> accent-soft: dark-mode ? #346bf124 : #1b4ed814;
+    out property <brush> selection-soft: dark-mode ? #346bf124 : #1b4ed814;
+    out property <brush> success-soft: dark-mode ? #00d4921a : #007a5514;
+    out property <brush> danger-soft: dark-mode ? #ff64671a : #c1000710;
+    out property <brush> warning-soft: dark-mode ? #ffb9001a : #bb4d0012;
 
-    out property <string> display-font: "DejaVu Sans";
-    out property <string> body-font: "DejaVu Sans";
+    // Empty families resolve to the desktop's default sans (system-ui).
+    out property <string> display-font: "";
+    out property <string> body-font: "";
     out property <string> data-font: "DejaVu Sans Mono";
 
     out property <length> space-1: 4px;
@@ -39,8 +51,10 @@ export global Theme {
     out property <length> space-8: 32px;
 
     out property <length> control-height: 36px;
-    out property <length> icon-button-size: 36px;
-    out property <length> section-radius: 10px;
-    out property <length> control-radius: 6px;
+    out property <length> field-height: 32px;
+    out property <length> label-gap: 4px;
+    out property <length> icon-button-size: 32px;
+    out property <length> section-radius: 12px;
+    out property <length> control-radius: 8px;
     out property <length> border-width: high-contrast ? 2px : 1px;
 }

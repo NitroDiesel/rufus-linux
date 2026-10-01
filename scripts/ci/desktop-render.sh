@@ -29,20 +29,23 @@ check_frame() {
         echo "Wrong desktop size: $shot ($actual_size, expected $expected_size)" >&2
         return 1
     fi
-    # The outer five-pixel gutter is canvas from top to bottom at every size.
+    # The five-pixel gutter is canvas at the top, middle, and bottom of the
+    # window; only the full-width header and footer hairlines cross it.
     # A stale 600px GLX drawable leaves black pixels below the rendered content.
-    local colors corner
-    colors=$("$image_command" "$shot" -crop 1x0+5+0 +repage -format '%k' info:)
-    corner=$("$image_command" "$shot" -format '%[hex:p{5,5}]' info:)
-    if [[ "$colors" != 1 || "$corner" != "$canvas" ]]; then
-        echo "Incomplete desktop frame: $shot (colors=$colors, canvas=$corner)" >&2
-        return 1
-    fi
+    local height point color
+    height=${actual_size#*x}
+    for point in "5,5" "5,$((height / 2))" "5,$((height - 5))"; do
+        color=$("$image_command" "$shot" -format "%[hex:p{$point}]" info:)
+        if [[ "$color" != "$canvas" ]]; then
+            echo "Incomplete desktop frame: $shot (pixel $point=$color, canvas=$canvas)" >&2
+            return 1
+        fi
+    done
 }
 
 for theme in light dark; do
-    canvas=F2F5F6
-    [[ "$theme" != dark ]] || canvas=10171E
+    canvas=FCFCFC
+    [[ "$theme" != dark ]] || canvas=0A0A0A
     for scale in 1 1.25 2; do
         env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-gl SLINT_SCALE_FACTOR="$scale" \
             WINIT_X11_SCALE_FACTOR=1 LIBGL_ALWAYS_SOFTWARE=1 RUFUS_LINUX_THEME="$theme" \
@@ -51,17 +54,21 @@ for theme in light dark; do
         window=$(timeout 15s xdotool search --sync --onlyvisible --pid "$app_pid" --name '^Rufus Linux$' | head -n 1)
         sleep 2
         case "$scale" in
-            1) startup_size=560x720; minimum_width=480; minimum_height=560 ;;
-            1.25) startup_size=700x900; minimum_width=600; minimum_height=700 ;;
-            2) startup_size=1120x1440; minimum_width=960; minimum_height=1120 ;;
+            1) startup_size=560x720 ;;
+            1.25) startup_size=700x900 ;;
+            2) startup_size=1120x1440 ;;
         esac
         check_frame "$theme-$scale-startup" "$startup_size"
-        xdotool windowsize "$window" "$minimum_width" "$minimum_height"
-        sleep 1
-        check_frame "$theme-$scale-minimum" "${minimum_width}x${minimum_height}"
-        xdotool windowsize "$window" 2200 1800
-        sleep 1
-        check_frame "$theme-$scale-large" 2200x1800
+        # Like upstream Rufus the dialog has a fixed size: the window manager
+        # hints pin minimum and maximum to the startup size.
+        hints=$(xprop -id "$window" WM_NORMAL_HINTS)
+        for bound in minimum maximum; do
+            if ! grep -q "program specified $bound size: ${startup_size/x/ by }" <<<"$hints"; then
+                echo "Window is not fixed at $startup_size ($bound):" >&2
+                echo "$hints" >&2
+                exit 1
+            fi
+        done
         cleanup
         app_pid=
     done
