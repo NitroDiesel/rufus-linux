@@ -17,6 +17,7 @@ use rufus_helper_protocol::{
 use rufus_image::ImageReport;
 use rufus_linux_platform::{list_block_devices, probe_capabilities};
 
+pub const DEFAULT_VOLUME_LABEL: &str = "RUFUS";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BootSelection {
     DiskOrIso,
@@ -62,6 +63,8 @@ pub struct AppState {
     pub filesystem_label: String,
     pub cluster_label: String,
     pub volume_label: String,
+    /// Set once the user types a label; image selection then stops proposing one.
+    pub volume_label_edited: bool,
     pub quick_format: bool,
     pub check_bad_blocks: bool,
     pub verify_write: bool,
@@ -103,7 +106,8 @@ impl AppState {
             target_system_label: "UEFI (non CSM)".into(),
             filesystem_label: "FAT32".into(),
             cluster_label: "Default".into(),
-            volume_label: "RUFUS".into(),
+            volume_label: DEFAULT_VOLUME_LABEL.into(),
+            volume_label_edited: false,
             quick_format: true,
             check_bad_blocks: false,
             verify_write: true,
@@ -244,6 +248,14 @@ impl AppState {
                     )
                 };
                 self.image_notes = report.notes.join(" ");
+                // Like upstream Rufus, propose the image's own volume name
+                // (some distros boot only from a USB carrying that label).
+                if !self.volume_label_edited {
+                    self.volume_label = report
+                        .label_hint
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_VOLUME_LABEL.into());
+                }
                 if let Some(fs) = report.preferred_filesystem {
                     if self.filesystem_available(fs.as_str()) {
                         self.filesystem_label = fs.as_str().to_owned();
@@ -510,6 +522,27 @@ impl AppState {
         }
     }
 
+    pub fn edit_volume_label(&mut self, label: &str) {
+        self.volume_label = label.to_owned();
+        self.volume_label_edited = !label.is_empty();
+    }
+
+    /// Explains when the chosen filesystem will store a shortened label.
+    pub fn volume_label_note(&self) -> String {
+        let Ok(filesystem) = self.parse_filesystem() else {
+            return String::new();
+        };
+        let written = filesystem.volume_label(&self.volume_label);
+        if written == self.volume_label {
+            String::new()
+        } else {
+            format!(
+                "{} will store this label as “{written}”.",
+                filesystem.as_str()
+            )
+        }
+    }
+
     fn parse_filesystem(&self) -> Result<FileSystem, PlanError> {
         let raw = self.filesystem_label.replace(" (unavailable)", "");
         FileSystem::parse(&raw).ok_or_else(|| {
@@ -573,7 +606,7 @@ impl AppState {
             scheme: self.parse_scheme(),
             boot_mode: self.parse_boot_mode(),
             filesystem,
-            label: self.volume_label.clone(),
+            label: filesystem.volume_label(&self.volume_label),
             cluster_size: self.parse_cluster_size(),
             persistence_bytes: if self.persistence_enabled {
                 (self.persistence_gb * 1024.0 * 1024.0 * 1024.0) as u64
@@ -919,6 +952,75 @@ mod tests {
             st.image_notes,
             "unsupported or unreadable image: current error"
         );
+    }
+
+    fn report_with_label(label: Option<&str>) -> ImageReport {
+        let path = std::env::temp_dir().join(format!(
+            "rufus-label-{}-{}.img",
+            std::process::id(),
+            label.unwrap_or("none")
+        ));
+        std::fs::write(&path, vec![0; 4096]).expect("write image fixture");
+        let mut report = rufus_image::analyze(&path).expect("analyze image fixture");
+        std::fs::remove_file(&path).expect("remove image fixture");
+        report.label_hint = label.map(str::to_owned);
+        report
+    }
+
+    fn inspect(st: &mut AppState, report: ImageReport) {
+        let (generation, _) = st
+            .begin_image_inspection(report.path.clone())
+            .expect("begin inspection");
+        assert!(st.finish_image_inspection(generation, Ok(report)));
+    }
+
+    #[test]
+    fn image_volume_name_is_proposed_until_the_user_types_a_label() {
+        let mut st = AppState::new();
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+
+        inspect(&mut st, report_with_label(Some("CCCOMA_X64FRE_EN-US_DV9")));
+        assert_eq!(st.volume_label, "CCCOMA_X64FRE_EN-US_DV9");
+        inspect(&mut st, report_with_label(None));
+        assert_eq!(st.volume_label, DEFAULT_VOLUME_LABEL);
+
+        st.edit_volume_label("MY_STICK");
+        inspect(&mut st, report_with_label(Some("ARCH_202610")));
+        assert_eq!(st.volume_label, "MY_STICK");
+
+        // Clearing the field hands the label back to image proposals.
+        st.edit_volume_label("");
+        inspect(&mut st, report_with_label(Some("ARCH_202610")));
+        assert_eq!(st.volume_label, "ARCH_202610");
+    }
+
+    #[test]
+    fn plan_stores_a_label_the_filesystem_accepts() {
+        let mut st = AppState::new();
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+        st.boot_selection = BootSelection::NonBootable;
+        st.edit_volume_label("CCCOMA_X64FRE_EN-US_DV9");
+
+        st.filesystem_label = "FAT32".into();
+        st.recompute();
+        assert_eq!(
+            st.build_plan().expect("FAT32 plan").partition.label,
+            "CCCOMA_X64F"
+        );
+        assert_eq!(
+            st.volume_label_note(),
+            "FAT32 will store this label as “CCCOMA_X64F”."
+        );
+
+        if st.filesystem_available("NTFS") {
+            st.filesystem_label = "NTFS".into();
+            st.recompute();
+            let plan = st.build_plan().expect("NTFS plan");
+            assert_eq!(plan.partition.label, "CCCOMA_X64FRE_EN-US_DV9");
+            assert_eq!(st.volume_label_note(), "");
+        }
     }
 
     #[test]

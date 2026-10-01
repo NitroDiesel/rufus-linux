@@ -1,3 +1,9 @@
+rufus-linux (0.1.5-1) unstable; urgency=medium
+
+  * Propose the ISO volume name as the USB label and fit labels to the filesystem.
+
+ -- Rufus Linux contributors <rufus-linux@users.noreply.github.com>  Thu, 01 Oct 2026 00:00:00 +0800
+
 rufus-linux (0.1.4-1) unstable; urgency=medium
 
   * Reskin the desktop workbench in a fixed Rufus-style window and fix alignment.

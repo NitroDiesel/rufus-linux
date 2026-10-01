@@ -393,6 +393,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let ui_weak = ui.as_weak();
         let state = state.clone();
+        // Sync every keystroke so later UI refreshes cannot restore an old label.
+        // Only the note is refreshed here; resetting the text would move the caret.
+        ui.on_volume_label_edited(move |text| {
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut st = state.borrow_mut();
+                st.edit_volume_label(&text);
+                ui.set_volume_label_note(st.volume_label_note().into());
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
         ui.on_persistence_changed(move |v| {
             if let Some(ui) = ui_weak.upgrade() {
                 let mut st = state.borrow_mut();
@@ -721,6 +734,7 @@ fn apply_state_to_ui(ui: &AppWindow, state: &AppState) {
     ui.set_filesystem(state.filesystem_label.clone().into());
     ui.set_cluster_size(state.cluster_label.clone().into());
     ui.set_volume_label(state.volume_label.clone().into());
+    ui.set_volume_label_note(state.volume_label_note().into());
     ui.set_persistence_enabled(state.persistence_enabled);
     ui.set_persistence_max_gb(state.persistence_max_gb as f32);
     ui.set_persistence_gb(state.persistence_gb as f32);

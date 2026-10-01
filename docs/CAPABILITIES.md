@@ -40,6 +40,16 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
 
+## Changes in 0.1.5
+
+Selecting an ISO proposes its volume name as the USB label, as upstream Rufus
+does: the UDF logical volume identifier (Windows media) or else the ISO 9660
+volume identifier. A label the user typed is kept. Labels are converted to
+what the chosen file system accepts, following upstream `ToValidLabel`; FAT
+labels keep 11 uppercase characters, so a Windows 11 label is stored as
+`CCCOMA_X64F` on FAT32. The form shows the stored label when it differs. Typed
+labels are now synchronized immediately instead of only at Start.
+
 ## Changes in 0.1.4
 
 The desktop workbench adopts a T3 Code–style skin in a fixed-size,
