@@ -10,9 +10,9 @@ use slint::ComponentHandle;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = i_slint_backend_winit::Backend::builder()
         .with_window_attributes_hook(|attributes| {
-            attributes.with_inner_size(i_slint_backend_winit::winit::dpi::LogicalSize::new(
-                560.0, 720.0,
-            ))
+            attributes.with_resizable(false).with_inner_size(
+                i_slint_backend_winit::winit::dpi::LogicalSize::new(560.0, 720.0),
+            )
         })
         .build()?;
     slint::platform::set_platform(Box::new(backend))?;

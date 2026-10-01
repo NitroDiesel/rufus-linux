@@ -42,7 +42,8 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 
 ## Changes in 0.1.4
 
-The desktop workbench adopts a T3 Code–style skin and fixes centered section
+The desktop workbench adopts a T3 Code–style skin in a fixed-size,
+non-maximizable window laid out like upstream Rufus. It fixes centered section
 titles, device details, and image controls; clipped action labels; and cards
 hidden under the scrollbar. No capability moved between available, blocked, and
 planned.

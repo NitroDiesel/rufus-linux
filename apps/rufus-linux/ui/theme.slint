@@ -5,6 +5,8 @@ export global Theme {
     in-out property <bool> dark-mode: true;
     in-out property <bool> high-contrast: false;
     in-out property <bool> reduced-motion: false;
+    // Set by AppWindow so popups can open upward near the bottom edge.
+    in-out property <length> window-height: 720px;
 
     out property <color> canvas: dark-mode ? #0a0a0a : #fcfcfc;
     out property <color> chrome: canvas;
@@ -49,11 +51,10 @@ export global Theme {
     out property <length> space-8: 32px;
 
     out property <length> control-height: 36px;
-    out property <length> field-height: 36px;
+    out property <length> field-height: 32px;
+    out property <length> label-gap: 4px;
     out property <length> icon-button-size: 32px;
-    out property <length> header-height: 48px;
-    out property <length> content-max-width: 720px;
-    out property <length> section-radius: 14px;
+    out property <length> section-radius: 12px;
     out property <length> control-radius: 8px;
     out property <length> border-width: high-contrast ? 2px : 1px;
 }

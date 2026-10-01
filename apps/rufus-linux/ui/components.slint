@@ -62,7 +62,7 @@ export component Callout inherits Rectangle {
 // Card title row. Extra children (badges, counters) sit on the right edge.
 export component SectionHeader inherits HorizontalLayout {
     in property <string> title;
-    height: 24px;
+    height: 22px;
     spacing: Theme.space-2;
 
     Text {
@@ -70,7 +70,7 @@ export component SectionHeader inherits HorizontalLayout {
         text: root.title;
         color: Theme.text;
         font-family: Theme.display-font;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
         vertical-alignment: center;
         overflow: elide;
@@ -86,7 +86,7 @@ export component Card inherits Rectangle {
     background: Theme.surface;
 
     VerticalLayout {
-        padding: Theme.space-4;
+        padding: Theme.space-3 + 2px;
         spacing: Theme.space-3;
         @children
     }
@@ -116,8 +116,8 @@ export component WorkbenchButton inherits Rectangle {
         : danger ? (touch.pressed ? Theme.accent-ink : Theme.danger)
         : Theme.text;
 
-    height: Theme.control-height;
-    min-width: compact ? Theme.control-height : max(88px, label.preferred-width + 2 * Theme.space-4);
+    height: compact ? Theme.field-height : Theme.control-height;
+    min-width: compact ? Theme.field-height : max(88px, label.preferred-width + 2 * Theme.space-4);
     horizontal-stretch: 0;
     vertical-stretch: 0;
     border-radius: Theme.control-radius;
@@ -351,7 +351,7 @@ export component TextField inherits Rectangle {
     border-width: Theme.border-width;
     border-color: input.has-focus ? Theme.focus : Theme.input;
     background: enabled ? Theme.inset : transparent;
-    opacity: enabled ? 1 : 0.55;
+    opacity: enabled ? 1 : 0.7;
     forward-focus: input;
 
     Rectangle {
@@ -382,7 +382,8 @@ export component TextField inherits Rectangle {
 }
 
 // Select control. Arrow keys step through choices without opening the list;
-// Space, Enter, or Alt+Down opens it.
+// Space, Enter, or Alt+Down opens it. A controlled field (the write target)
+// never changes on a bare arrow key: arrows open the list instead.
 export component SelectField inherits Rectangle {
     in property <[string]> choices;
     in property <bool> enabled: true;
@@ -400,8 +401,10 @@ export component SelectField inherits Rectangle {
 
     function pick(index: int) {
         if index < 0 || index >= root.choices.length { return; }
-        if !root.controlled { root.value = root.choices[index]; }
-        root.current-index = index;
+        if !root.controlled {
+            root.value = root.choices[index];
+            root.current-index = index;
+        }
         root.selected(root.choices[index]);
     }
 
@@ -410,11 +413,12 @@ export component SelectField inherits Rectangle {
     border-width: Theme.border-width;
     border-color: field-focus.has-focus ? Theme.focus : Theme.input;
     background: !enabled ? transparent : (touch.has-hover ? Theme.hover : Theme.inset);
-    opacity: enabled ? 1 : 0.55;
+    opacity: enabled ? 1 : 0.7;
     accessible-role: combobox;
     accessible-label: accessible-name;
     accessible-value: value;
     accessible-enabled: enabled;
+    accessible-action-default => { if root.can-open { list.show(); } }
     forward-focus: field-focus;
 
     for choice[i] in root.choices: Rectangle {
@@ -471,7 +475,12 @@ export component SelectField inherits Rectangle {
         enabled: root.enabled;
         key-pressed(event) => {
             if !root.can-open { return reject; }
-            if event.text == Key.DownArrow && event.modifiers.alt {
+            if event.text == Key.Escape {
+                list.close();
+                return reject;
+            }
+            if (event.text == Key.DownArrow || event.text == Key.UpArrow)
+                && (event.modifiers.alt || root.controlled) {
                 list.show();
                 return accept;
             }
@@ -483,6 +492,11 @@ export component SelectField inherits Rectangle {
                 root.pick(max(root.current-index - 1, 0));
                 return accept;
             }
+            if event.text == " " || event.text == "\n" {
+                list.show();
+                return accept;
+            }
+            if root.controlled { return reject; }
             if event.text == Key.Home {
                 root.pick(0);
                 return accept;
@@ -491,17 +505,14 @@ export component SelectField inherits Rectangle {
                 root.pick(root.choices.length - 1);
                 return accept;
             }
-            if event.text == " " || event.text == "\n" {
-                list.show();
-                return accept;
-            }
             return reject;
         }
     }
 
     list := PopupWindow {
         x: 0px;
-        y: root.height + 4px;
+        y: root.absolute-position.y + root.height + 4px + self.height <= Theme.window-height - 8px
+            ? root.height + 4px : -self.height - 4px;
         width: root.width;
         height: min(root.choices.length * 32px + 10px, 260px);
 
@@ -571,7 +582,7 @@ export component CheckRow inherits Rectangle {
 
     height: 24px;
     min-width: box.width + Theme.space-2 + caption.preferred-width;
-    opacity: enabled ? 1 : 0.55;
+    opacity: enabled ? 1 : 0.7;
     accessible-role: checkbox;
     accessible-label: text;
     accessible-checkable: true;
@@ -587,7 +598,7 @@ export component CheckRow inherits Rectangle {
         height: 16px;
         border-radius: 4px;
         border-width: root.checked ? 0px : Theme.border-width;
-        border-color: Theme.input;
+        border-color: Theme.dark-mode ? Theme.input : #a1a1aa;
         background: root.checked ? Theme.accent : (touch.has-hover ? Theme.hover : Theme.inset);
 
         Rectangle {
@@ -648,7 +659,7 @@ export component LabeledLineEdit inherits VerticalLayout {
     in property <bool> invalid: false;
     in property <string> accessible-name: label;
     in-out property <string> value <=> input.text;
-    spacing: 6px;
+    spacing: Theme.label-gap;
 
     FieldLabel { label: root.label; }
     input := TextField {
@@ -668,7 +679,7 @@ export component LabeledComboBox inherits VerticalLayout {
     callback selected(string);
     min-width: 72px;
     preferred-width: 160px;
-    spacing: 6px;
+    spacing: Theme.label-gap;
 
     FieldLabel { label: root.label; }
     combo := SelectField {
@@ -679,75 +690,6 @@ export component LabeledComboBox inherits VerticalLayout {
         selected(value) => { root.selected(value); }
     }
     if root.helper != "": HelperLabel { message: root.helper; }
-}
-
-export component TargetPlate inherits Rectangle {
-    in property <string> device-name: "SanDisk Ultra";
-    in property <string> device-path: "/dev/sdb";
-    in property <string> capacity: "31.9 GB";
-    in property <bool> destructive: false;
-    in property <bool> present: true;
-
-    height: 56px;
-    border-radius: Theme.control-radius + 2px;
-    border-width: Theme.border-width;
-    border-color: destructive ? Theme.warning.with-alpha(0.4) : Theme.border;
-    background: destructive ? Theme.warning-soft : Theme.inset;
-    accessible-role: groupbox;
-    accessible-label: present ? "Target device " + device-name + ", " + device-path + ", " + capacity : "No target device";
-
-    HorizontalLayout {
-        padding-left: Theme.space-3;
-        padding-right: Theme.space-4;
-        spacing: Theme.space-3;
-
-        VerticalLayout {
-            alignment: center;
-            Rectangle {
-                width: 32px;
-                height: 32px;
-                border-radius: Theme.control-radius;
-                background: root.destructive ? Theme.warning-soft : Theme.track;
-                Image {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 18px;
-                    height: 18px;
-                    source: @image-url("../../../assets/icons/toolbar/drive.svg");
-                    colorize: root.destructive ? Theme.warning : (root.present ? Theme.text : Theme.muted);
-                }
-            }
-        }
-        VerticalLayout {
-            horizontal-stretch: 1;
-            alignment: center;
-            spacing: 2px;
-            Text {
-                text: root.present ? root.device-name : "No device selected";
-                color: root.present ? Theme.text : Theme.muted;
-                font-family: Theme.body-font;
-                font-size: 13px;
-                font-weight: 500;
-                overflow: elide;
-            }
-            Text {
-                text: root.present ? root.device-path : "Insert a USB drive or refresh the list";
-                color: Theme.muted;
-                font-family: root.present ? Theme.data-font : Theme.body-font;
-                font-size: 11px;
-                overflow: elide;
-            }
-        }
-        if root.present: Text {
-            horizontal-stretch: 0;
-            text: root.capacity;
-            color: root.destructive ? Theme.warning : Theme.text;
-            font-family: Theme.data-font;
-            font-size: 12px;
-            font-weight: 600;
-            vertical-alignment: center;
-        }
-    }
 }
 
 // Continuous progress trough with phase and telemetry above it.
@@ -777,7 +719,7 @@ export component WriteTrack inherits VerticalLayout {
         Text {
             horizontal-stretch: 1;
             text: root.phase;
-            color: root.tone == "error" ? Theme.danger : (root.tone == "warning" ? Theme.warning : (root.active ? Theme.accent : Theme.muted));
+            color: root.tone == "error" ? Theme.danger : (root.tone == "warning" ? Theme.warning : (root.active ? Theme.focus : Theme.muted));
             font-family: Theme.data-font;
             font-size: 11px;
             font-weight: 600;

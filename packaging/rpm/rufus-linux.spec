@@ -55,7 +55,7 @@ done
 
 %changelog
 * Thu Oct 01 2026 Rufus Linux contributors - 0.1.4-1
-- Reskin the desktop workbench and fix control alignment
+- Reskin the desktop workbench in a fixed Rufus-style window and fix alignment
 
 * Tue Sep 15 2026 Rufus Linux contributors - 0.1.3-1
 - Enable standalone VHD/VHDX conversion through qemu-nbd and nbdcopy

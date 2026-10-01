@@ -54,17 +54,21 @@ for theme in light dark; do
         window=$(timeout 15s xdotool search --sync --onlyvisible --pid "$app_pid" --name '^Rufus Linux$' | head -n 1)
         sleep 2
         case "$scale" in
-            1) startup_size=560x720; minimum_width=480; minimum_height=560 ;;
-            1.25) startup_size=700x900; minimum_width=600; minimum_height=700 ;;
-            2) startup_size=1120x1440; minimum_width=960; minimum_height=1120 ;;
+            1) startup_size=560x720 ;;
+            1.25) startup_size=700x900 ;;
+            2) startup_size=1120x1440 ;;
         esac
         check_frame "$theme-$scale-startup" "$startup_size"
-        xdotool windowsize "$window" "$minimum_width" "$minimum_height"
-        sleep 1
-        check_frame "$theme-$scale-minimum" "${minimum_width}x${minimum_height}"
-        xdotool windowsize "$window" 2200 1800
-        sleep 1
-        check_frame "$theme-$scale-large" 2200x1800
+        # Like upstream Rufus the dialog has a fixed size: the window manager
+        # hints pin minimum and maximum to the startup size.
+        hints=$(xprop -id "$window" WM_NORMAL_HINTS)
+        for bound in minimum maximum; do
+            if ! grep -q "program specified $bound size: ${startup_size/x/ by }" <<<"$hints"; then
+                echo "Window is not fixed at $startup_size ($bound):" >&2
+                echo "$hints" >&2
+                exit 1
+            fi
+        done
         cleanup
         app_pid=
     done

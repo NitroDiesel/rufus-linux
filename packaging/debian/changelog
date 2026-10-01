@@ -1,6 +1,6 @@
 rufus-linux (0.1.4-1) unstable; urgency=medium
 
-  * Reskin the desktop workbench and fix control alignment.
+  * Reskin the desktop workbench in a fixed Rufus-style window and fix alignment.
 
  -- Rufus Linux contributors <rufus-linux@users.noreply.github.com>  Thu, 01 Oct 2026 00:00:00 +0800
 
