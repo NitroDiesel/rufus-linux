@@ -40,6 +40,13 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
 
+## Changes in 0.1.4
+
+The desktop workbench adopts a T3 Code–style skin and fixes centered section
+titles, device details, and image controls; clipped action labels; and cards
+hidden under the scrollbar. No capability moved between available, blocked, and
+planned.
+
 ## Changes in 0.1.3
 
 VHD recognition checks footer signatures as well as the leading signature and

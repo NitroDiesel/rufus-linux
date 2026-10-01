@@ -29,20 +29,23 @@ check_frame() {
         echo "Wrong desktop size: $shot ($actual_size, expected $expected_size)" >&2
         return 1
     fi
-    # The outer five-pixel gutter is canvas from top to bottom at every size.
+    # The five-pixel gutter is canvas at the top, middle, and bottom of the
+    # window; only the full-width header and footer hairlines cross it.
     # A stale 600px GLX drawable leaves black pixels below the rendered content.
-    local colors corner
-    colors=$("$image_command" "$shot" -crop 1x0+5+0 +repage -format '%k' info:)
-    corner=$("$image_command" "$shot" -format '%[hex:p{5,5}]' info:)
-    if [[ "$colors" != 1 || "$corner" != "$canvas" ]]; then
-        echo "Incomplete desktop frame: $shot (colors=$colors, canvas=$corner)" >&2
-        return 1
-    fi
+    local height point color
+    height=${actual_size#*x}
+    for point in "5,5" "5,$((height / 2))" "5,$((height - 5))"; do
+        color=$("$image_command" "$shot" -format "%[hex:p{$point}]" info:)
+        if [[ "$color" != "$canvas" ]]; then
+            echo "Incomplete desktop frame: $shot (pixel $point=$color, canvas=$canvas)" >&2
+            return 1
+        fi
+    done
 }
 
 for theme in light dark; do
-    canvas=F2F5F6
-    [[ "$theme" != dark ]] || canvas=10171E
+    canvas=FCFCFC
+    [[ "$theme" != dark ]] || canvas=0A0A0A
     for scale in 1 1.25 2; do
         env -u WAYLAND_DISPLAY SLINT_BACKEND=winit-gl SLINT_SCALE_FACTOR="$scale" \
             WINIT_X11_SCALE_FACTOR=1 LIBGL_ALWAYS_SOFTWARE=1 RUFUS_LINUX_THEME="$theme" \

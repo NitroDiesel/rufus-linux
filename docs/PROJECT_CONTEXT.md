@@ -18,10 +18,10 @@ Debian/Ubuntu, and Fedora. Feature parity means implementing an upstream concept
 safely on Linux; it does not mean exposing a control before its full operation
 is implemented and verified.
 
-## Current baseline: 0.1.3
+## Current baseline: 0.1.4
 
-Version 0.1.3 is the continuation baseline. Its public installers belong in the
-[v0.1.3 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.3).
+Version 0.1.4 is the continuation baseline. Its public installers belong in the
+[v0.1.4 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.4).
 
 Completed product work includes:
 
@@ -145,11 +145,23 @@ changing AppImage contents or launch behavior.
 ## UI and product behavior
 
 The visual direction is a compact “Device Workbench,” not a clone of the
-Windows window chrome. Preserve these resolved decisions:
+Windows window chrome. Since 0.1.4 its skin follows T3 Code: a neutral
+`#0a0a0a`/`#fcfcfc` canvas, hairline borders, flat 14-pixel-radius cards, the
+desktop default sans font, and one indigo-blue primary action. Tokens live in
+`apps/rufus-linux/ui/theme.slint`. The std-widgets palette cannot be restyled
+in Slint 1.9, so selects, text fields, checkboxes, and the workbench scrollbar
+are custom components in `components.slint`. Selects step through choices with
+Up/Down/Home/End and open their list with Space, Enter, or Alt+Down. Preserve
+these resolved decisions:
 
 - no redundant in-content “Rufus Linux / Device Workbench” title block;
-- a right-aligned, evenly spaced toolbar and a refresh control aligned with the
-  device selector;
+- a full-width header bar holding a right-aligned, evenly spaced toolbar, a
+  footer bar holding Close and the primary action, and a refresh control
+  aligned with the device selector; header, cards, and footer share one
+  centered column of at most 720 pixels;
+- section titles, device details, and image controls are left-aligned. Avoid
+  `alignment: center` on a horizontal layout that relies on a stretching
+  spacer; Slint then gives the spacer zero width and centers everything;
 - normalized 36-pixel action buttons and 13-pixel action labels, with visible
   focus rings and Space/Enter activation;
 - Log, About, and destructive confirmation overlays block all interaction with

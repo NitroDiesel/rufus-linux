@@ -20,7 +20,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_VERSION: 0.1.3
+  PACKAGE_VERSION: 0.1.4
 
 jobs:
   debian:
