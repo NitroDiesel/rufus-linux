@@ -49,6 +49,7 @@ export component AppWindow inherits Window {
     in-out property <[string]> cluster-choices;
     in-out property <string> cluster-size: "Default";
     in-out property <string> volume-label: "RUFUS";
+    in-out property <string> volume-label-note: "";
 
     in-out property <bool> quick-format: true;
     in-out property <bool> check-bad-blocks: false;
@@ -78,7 +79,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-about: false;
     in-out property <bool> show-advanced: false;
     in-out property <string> capability-hint: "";
-    in-out property <string> app-version: "0.1.4";
+    in-out property <string> app-version: "0.1.5";
 
     // —— Callbacks ——
     callback refresh-devices();
@@ -100,6 +101,7 @@ export component AppWindow inherits Window {
     callback compute-checksums();
     callback persistence-changed(float);
     callback option-changed();
+    callback volume-label-edited(string);
     callback close-clicked();
 
     VerticalLayout {
@@ -233,7 +235,9 @@ export component AppWindow inherits Window {
                         LabeledLineEdit {
                             label: "Volume label";
                             value <=> root.volume-label;
+                            helper: root.volume-label-note;
                             enabled: root.can-configure;
+                            edited(text) => { root.volume-label-edited(text); }
                         }
                         HorizontalLayout {
                             spacing: Theme.space-3;

@@ -23,6 +23,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.5" date="2026-10-01">
+      <description>
+        <p>Proposes the selected ISO's volume name as the USB label, as Rufus
+        does, and shortens labels to what the chosen file system accepts.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-10-01">
       <description>
         <p>Refreshes the desktop workbench with a neutral, flat theme in a

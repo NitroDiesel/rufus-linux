@@ -1,5 +1,5 @@
 Name:           rufus-linux
-Version:        0.1.4
+Version:        0.1.5
 Release:        1%{?dist}
 Summary:        Format and create bootable USB drives
 License:        GPL-3.0-or-later
@@ -54,6 +54,9 @@ done
 %{_datadir}/icons/hicolor/*/apps/io.github.nitrodiesel.rufus-linux.png
 
 %changelog
+* Thu Oct 01 2026 Rufus Linux contributors - 0.1.5-1
+- Propose the ISO volume name as the USB label and fit labels to the filesystem
+
 * Thu Oct 01 2026 Rufus Linux contributors - 0.1.4-1
 - Reskin the desktop workbench in a fixed Rufus-style window and fix alignment
 

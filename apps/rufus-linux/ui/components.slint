@@ -345,6 +345,7 @@ export component TextField inherits Rectangle {
     in property <string> accessible-name;
     in-out property <string> text <=> input.text;
     out property <bool> has-focus: input.has-focus;
+    callback edited(string);
 
     height: Theme.field-height;
     border-radius: Theme.control-radius;
@@ -378,6 +379,7 @@ export component TextField inherits Rectangle {
         vertical-alignment: center;
         accessible-role: text-input;
         accessible-label: root.accessible-name;
+        edited => { root.edited(self.text); }
     }
 }
 
@@ -659,12 +661,14 @@ export component LabeledLineEdit inherits VerticalLayout {
     in property <bool> invalid: false;
     in property <string> accessible-name: label;
     in-out property <string> value <=> input.text;
+    callback edited(string);
     spacing: Theme.label-gap;
 
     FieldLabel { label: root.label; }
     input := TextField {
         enabled: root.enabled;
         accessible-name: root.accessible-name;
+        edited(text) => { root.edited(text); }
     }
     if root.helper != "": HelperLabel { message: root.helper; is-error: root.invalid; }
 }

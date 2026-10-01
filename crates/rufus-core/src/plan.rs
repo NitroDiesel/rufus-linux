@@ -65,6 +65,42 @@ impl FileSystem {
             _ => None,
         }
     }
+
+    /// Convert a proposed label into one this filesystem's formatter accepts,
+    /// following upstream Rufus `ToValidLabel`: FAT-family labels drop
+    /// reserved characters, replace non-ASCII with `_`, are uppercased, and
+    /// keep 11 characters; other labels keep 32 characters (ext: 16 bytes).
+    pub fn volume_label(self, label: &str) -> String {
+        const FAT_RESERVED: &str = "*?,;:/\\|+=<>[]\"";
+        let fat = matches!(self, Self::Fat | Self::Fat32 | Self::ExFat);
+        let mut out = String::new();
+        for c in label.chars() {
+            if c == '\t' || c == '.' {
+                out.push('_');
+            } else if c.is_control() || (fat && FAT_RESERVED.contains(c)) {
+                continue;
+            } else if fat && !c.is_ascii() {
+                out.push('_');
+            } else if fat {
+                out.push(c.to_ascii_uppercase());
+            } else {
+                out.push(c);
+            }
+        }
+        let limit = if fat { 11 } else { 32 };
+        let mut out: String = out.chars().take(limit).collect();
+        if matches!(self, Self::Ext2 | Self::Ext3 | Self::Ext4) {
+            while out.len() > 16 {
+                out.pop();
+            }
+        }
+        // A label that is mostly substitutes says nothing; use the default.
+        let underscores = out.chars().filter(|&c| c == '_').count();
+        if fat && out.chars().count() < 2 * underscores {
+            return "RUFUS".into();
+        }
+        out
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -334,6 +370,25 @@ pub fn build_steps(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn volume_labels_fit_each_filesystem_like_upstream() {
+        use super::FileSystem::*;
+        let windows = "CCCOMA_X64FRE_EN-US_DV9";
+        assert_eq!(Fat32.volume_label(windows), "CCCOMA_X64F");
+        assert_eq!(ExFat.volume_label(windows), "CCCOMA_X64F");
+        assert_eq!(Ntfs.volume_label(windows), windows);
+        assert_eq!(Ext4.volume_label(windows), "CCCOMA_X64FRE_EN");
+        assert_eq!(Fat32.volume_label("my usb"), "MY USB");
+        assert_eq!(Ntfs.volume_label("my usb"), "my usb");
+        assert_eq!(Fat32.volume_label("a*b?c.d"), "ABC_D");
+        assert_eq!(Ntfs.volume_label("a*b?c.d"), "a*b?c_d");
+        assert_eq!(Fat32.volume_label("ÄÖÜ"), "RUFUS");
+        assert_eq!(Ntfs.volume_label(&"x".repeat(40)), "x".repeat(32));
+        // ext labels are limited to 16 bytes without splitting a character.
+        assert_eq!(Ext4.volume_label("ééééééééé"), "éééééééé");
+        assert_eq!(Fat32.volume_label(""), "");
+    }
+
     use super::*;
     use crate::device::{DeviceFingerprint, DeviceNumber};
     use crate::progress::JobId;

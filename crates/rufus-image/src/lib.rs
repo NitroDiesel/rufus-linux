@@ -219,6 +219,10 @@ pub fn analyze_file(path: &Path, file: &mut File) -> Result<ImageReport, ImageEr
                 .push("Linux live image heuristics enabled persistence option.".into());
         }
 
+        if is_iso {
+            report.label_hint = read_iso_label(file)?;
+        }
+
         // Prefer dual boot for generic ISOs.
         report.has_efi = true;
         report.has_bios = report.has_bios || report.isohybrid;
@@ -262,6 +266,93 @@ fn detect_iso(file: &mut File) -> Result<bool, ImageError> {
     let mut magic = [0u8; 5];
     let n = file.read(&mut magic)?;
     Ok(n == 5 && &magic == b"CD001")
+}
+
+const ISO_SECTOR: u64 = 2048;
+/// Upper bound on Volume Descriptor Sequence sectors scanned for a UDF label.
+const UDF_MAX_VDS_SECTORS: u32 = 64;
+
+/// The volume name upstream Rufus proposes as the USB label: the UDF logical
+/// volume identifier when present (Windows media), else the ISO 9660 one.
+fn read_iso_label(file: &mut File) -> Result<Option<String>, ImageError> {
+    if let Some(label) = read_udf_label(file)? {
+        return Ok(Some(label));
+    }
+    let mut pvd = [0u8; 72];
+    if !read_at(file, 16 * ISO_SECTOR, &mut pvd)? || pvd[0] != 1 || &pvd[1..6] != b"CD001" {
+        return Ok(None);
+    }
+    Ok(clean_label(pvd[40..72].iter().map(|&b| char::from(b))))
+}
+
+fn read_udf_label(file: &mut File) -> Result<Option<String>, ImageError> {
+    // Anchor Volume Descriptor Pointer (tag 2) at sector 256.
+    let mut anchor = [0u8; 24];
+    if !read_at(file, 256 * ISO_SECTOR, &mut anchor)?
+        || u16::from_le_bytes([anchor[0], anchor[1]]) != 2
+        || u32::from_le_bytes([anchor[12], anchor[13], anchor[14], anchor[15]]) != 256
+    {
+        return Ok(None);
+    }
+    let length = u32::from_le_bytes([anchor[16], anchor[17], anchor[18], anchor[19]]);
+    let location = u32::from_le_bytes([anchor[20], anchor[21], anchor[22], anchor[23]]);
+    let sectors = (length / ISO_SECTOR as u32).min(UDF_MAX_VDS_SECTORS);
+    let mut descriptor = [0u8; 212];
+    for sector in 0..sectors {
+        let offset = (u64::from(location) + u64::from(sector)) * ISO_SECTOR;
+        if !read_at(file, offset, &mut descriptor)? {
+            return Ok(None);
+        }
+        match u16::from_le_bytes([descriptor[0], descriptor[1]]) {
+            // Logical Volume Descriptor: identifier is a 128-byte dstring at 84.
+            6 => return Ok(decode_dstring(&descriptor[84..212])),
+            // Terminating Descriptor.
+            8 => return Ok(None),
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+/// Decode an OSTA CS0 dstring: compression ID 8 (Latin-1) or 16 (UTF-16BE),
+/// with the used length in the final byte.
+fn decode_dstring(field: &[u8]) -> Option<String> {
+    let used = usize::from(*field.last()?);
+    if used < 2 || used >= field.len() {
+        return None;
+    }
+    let bytes = &field[1..used];
+    match field[0] {
+        8 => clean_label(bytes.iter().map(|&b| char::from(b))),
+        16 => clean_label(
+            char::decode_utf16(
+                bytes
+                    .chunks_exact(2)
+                    .map(|pair| u16::from_be_bytes([pair[0], pair[1]])),
+            )
+            .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)),
+        ),
+        _ => None,
+    }
+}
+
+fn clean_label(chars: impl Iterator<Item = char>) -> Option<String> {
+    let label: String = chars
+        .take_while(|&c| c != '\0')
+        .filter(|c| !c.is_control())
+        .collect();
+    let label = label.trim_end();
+    (!label.is_empty()).then(|| label.to_owned())
+}
+
+/// Read exactly `buf.len()` bytes at `offset`; false when the file is shorter.
+fn read_at(file: &mut File, offset: u64, buf: &mut [u8]) -> Result<bool, ImageError> {
+    file.seek(SeekFrom::Start(offset))?;
+    match file.read_exact(buf) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Compute selected checksums of a file. Legacy MD5/SHA-1 are for user comparison only.
@@ -365,6 +456,85 @@ mod tests {
             report.kind,
             ImageSourceKind::Iso | ImageSourceKind::IsoHybrid
         ));
+    }
+
+    fn iso_fixture(volume_id: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0u8; 18 * 2048];
+        let pvd = 16 * 2048;
+        bytes[pvd] = 1;
+        bytes[pvd + 1..pvd + 6].copy_from_slice(b"CD001");
+        bytes[pvd + 40..pvd + 72].fill(b' ');
+        bytes[pvd + 40..pvd + 40 + volume_id.len()].copy_from_slice(volume_id);
+        bytes
+    }
+
+    fn add_udf_label(bytes: &mut Vec<u8>, compression: u8, encoded: &[u8]) {
+        bytes.resize(260 * 2048, 0);
+        let anchor = 256 * 2048;
+        bytes[anchor..anchor + 2].copy_from_slice(&2u16.to_le_bytes());
+        bytes[anchor + 12..anchor + 16].copy_from_slice(&256u32.to_le_bytes());
+        bytes[anchor + 16..anchor + 20].copy_from_slice(&(3 * 2048u32).to_le_bytes());
+        bytes[anchor + 20..anchor + 24].copy_from_slice(&257u32.to_le_bytes());
+        // A Primary Volume Descriptor precedes the Logical Volume Descriptor.
+        bytes[257 * 2048..257 * 2048 + 2].copy_from_slice(&1u16.to_le_bytes());
+        let lvd = 258 * 2048;
+        bytes[lvd..lvd + 2].copy_from_slice(&6u16.to_le_bytes());
+        bytes[lvd + 84] = compression;
+        bytes[lvd + 85..lvd + 85 + encoded.len()].copy_from_slice(encoded);
+        bytes[lvd + 84 + 127] = u8::try_from(encoded.len() + 1).expect("short dstring");
+    }
+
+    fn analyze_bytes(name: &str, bytes: &[u8]) -> ImageReport {
+        let path = temp_path(name).with_extension("iso");
+        std::fs::write(&path, bytes).expect("write ISO fixture");
+        let report = analyze(&path).expect("analyze ISO fixture");
+        std::fs::remove_file(&path).expect("remove ISO fixture");
+        report
+    }
+
+    #[test]
+    fn iso9660_volume_id_becomes_trimmed_label_hint() {
+        let report = analyze_bytes("pvd-label", &iso_fixture(b"ARCH_202610"));
+        assert_eq!(report.label_hint.as_deref(), Some("ARCH_202610"));
+    }
+
+    #[test]
+    fn udf_logical_volume_id_is_preferred_like_windows_media() {
+        let mut bytes = iso_fixture(b"ISO9660_NAME");
+        let utf16: Vec<u8> = "CCCOMA_X64FRE_EN-US_DV9"
+            .encode_utf16()
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        add_udf_label(&mut bytes, 16, &utf16);
+        let report = analyze_bytes("udf16-label", &bytes);
+        assert_eq!(
+            report.label_hint.as_deref(),
+            Some("CCCOMA_X64FRE_EN-US_DV9")
+        );
+
+        let mut bytes = iso_fixture(b"ISO9660_NAME");
+        add_udf_label(&mut bytes, 8, b"UDF8_NAME  ");
+        let report = analyze_bytes("udf8-label", &bytes);
+        assert_eq!(report.label_hint.as_deref(), Some("UDF8_NAME"));
+    }
+
+    #[test]
+    fn blank_or_malformed_volume_ids_give_no_label_hint() {
+        let report = analyze_bytes("blank-label", &iso_fixture(b""));
+        assert_eq!(report.label_hint, None);
+
+        // A UDF anchor pointing past the end of the file falls back to ISO 9660.
+        let mut bytes = iso_fixture(b"FALLBACK");
+        add_udf_label(&mut bytes, 16, &[0, b'X']);
+        bytes.truncate(257 * 2048);
+        let report = analyze_bytes("short-udf", &bytes);
+        assert_eq!(report.label_hint.as_deref(), Some("FALLBACK"));
+
+        // Unknown dstring compression is ignored rather than guessed.
+        let mut bytes = iso_fixture(b"FALLBACK");
+        add_udf_label(&mut bytes, 254, b"GARBAGE");
+        let report = analyze_bytes("bad-udf", &bytes);
+        assert_eq!(report.label_hint.as_deref(), Some("FALLBACK"));
     }
 
     #[test]
