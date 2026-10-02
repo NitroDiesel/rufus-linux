@@ -1049,10 +1049,12 @@ mod tests {
     }
 
     fn report_with_label(label: Option<&str>) -> ImageReport {
+        // Tests run in parallel; every fixture needs its own file.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let path = std::env::temp_dir().join(format!(
             "rufus-label-{}-{}.img",
             std::process::id(),
-            label.unwrap_or("none")
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::write(&path, vec![0; 4096]).expect("write image fixture");
         let mut report = rufus_image::analyze(&path).expect("analyze image fixture");

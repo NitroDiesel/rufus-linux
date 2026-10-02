@@ -153,7 +153,7 @@ jobs:
             archlinux:base-devel \
             bash -euxo pipefail -c '
               pacman -Syu --noconfirm \
-                rust cargo polkit util-linux parted dosfstools exfatprogs \
+                rust cargo udisks2 polkit util-linux parted dosfstools exfatprogs \
                 ntfsprogs e2fsprogs udftools qemu-img libnbd \
                 fontconfig freetype2 libxkbcommon libxkbcommon-x11 \
                 libxcursor libxi libglvnd wayland libx11 libxcb
