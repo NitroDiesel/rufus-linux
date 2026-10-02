@@ -333,8 +333,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.on_partition_selected(move |v| {
             if let Some(ui) = ui_weak.upgrade() {
                 let mut st = state.borrow_mut();
-                st.partition_scheme_label = v.to_string();
-                st.recompute();
+                st.select_partition_scheme(&v);
                 apply_state_to_ui(&ui, &st);
             }
         });
@@ -466,7 +465,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         return;
                     }
                 };
-                match helper_client::launch(&request, helper_sender.clone()) {
+                let launched = match &st.backend {
+                    Ok(backend) => helper_client::launch(backend, &request, helper_sender.clone()),
+                    Err(reason) => Err(reason.clone()),
+                };
+                match launched {
                     Ok(process) => {
                         st.begin_operation();
                         running_helper.borrow_mut().replace(process);

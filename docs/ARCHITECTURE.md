@@ -27,9 +27,18 @@ and write. Execution still independently validates a protected source. See
 
 The planner converts a device snapshot, image report, and user options into an immutable sequence. It rejects incompatible combinations before privilege is requested. The helper validates the sequence again; desktop validation is never a security boundary.
 
+### udisks2 engine
+
+`rufus_helper::execute_with_udisks` runs a request in the desktop process as
+the user. The system udisks2 daemon partitions, formats, mounts, and opens raw
+descriptors under its own polkit policy; the engine streams images, copies ISO
+files (via `rufus_image::isofs`), writes boot code, and verifies. Windows media
+layout and boot records live in `rufus-helper/src/windows_media.rs`. This is
+the default path and the only one that builds Windows media.
+
 ### Privileged helper
 
-The helper has a small allowlist: revalidate, unmount/swapoff, lock, test, partition, format, bounded disk-image write, verify and flush. External tools are selected from reviewed absolute paths, run with a cleared environment and never through a shell. The helper exchanges versioned NDJSON over standard I/O and exits after one operation.
+The helper is the fallback where udisks2 is not running. It has a small allowlist: revalidate, unmount/swapoff, lock, test, partition, format, bounded disk-image write, verify and flush. External tools are selected from reviewed absolute paths, run with a cleared environment and never through a shell. The helper exchanges versioned NDJSON over standard I/O and exits after one operation.
 
 ## Dependency strategy
 

@@ -35,6 +35,8 @@ These tools and libraries are intended to remain system dependencies rather than
 | Slint | GPL-3.0-only or commercial | Declarative desktop interface |
 | winit and Slint render backends | Apache-2.0/MIT and component licenses | Wayland/X11 windowing and rendering |
 | Fontconfig/FreeType | MIT-style and FTL/GPL | System font discovery and rendering |
+| udisks2 | GPL-2.0-or-later / LGPL-2.0-or-later | Partitioning, formatting, mounting, and authorized raw access |
+| zbus (crate) | MIT | D-Bus client for udisks2 |
 | polkit | LGPL-2.0-or-later | Explicit privilege authorization |
 | util-linux | GPL/LGPL components | Block flush, unmount, and swap management |
 | GNU Parted | GPL-3.0-or-later | MBR/GPT partition creation |
@@ -48,7 +50,20 @@ These tools and libraries are intended to remain system dependencies rather than
 
 License versions above are orientation only. The installed package's license metadata is authoritative.
 
-## Boot assets
+## Bundled boot assets
+
+- `crates/rufus-helper/assets/uefi-ntfs/`: the unchanged contents of upstream
+  Rufus `res/uefi/uefi-ntfs.img` (SHA-256
+  `72683fa1250eeea772d3399277b434d4e55ba8dd0dc926e52d817e701fc2eb9e`):
+  Secure Boot signed UEFI:NTFS 2.8 bootloaders and ntfs-3g 1.9 drivers
+  (GPL-2.0-or-later) and EfiFs 1.12 exFAT drivers (GPL-3.0). Sources:
+  <https://github.com/pbatard/uefi-ntfs>, <https://github.com/pbatard/efifs>.
+  Per-file digests are in `PROVENANCE.md` there; a unit test pins them.
+- `crates/rufus-helper/assets/ms-sys/`: Windows 7 MBR and NTFS/FAT32 boot
+  record byte arrays from upstream Rufus `src/ms-sys/inc/` (ms-sys,
+  GPL-2.0-or-later), converted unchanged; see `PROVENANCE.md` there.
+
+## Boot assets policy
 
 FreeDOS, Syslinux, GRUB, GRUB4DOS, ReactOS, and UEFI:NTFS assets each carry their own licenses and source-offer requirements. Do not add a binary boot asset without:
 

@@ -386,16 +386,9 @@ pub fn probe_capabilities() -> CapabilityReport {
         ],
         "gzip / xz / bzip2 / zstd / libarchive",
     );
-    report.set(
-        Capability::IsoExtraction,
-        CapabilityState::Unavailable {
-            missing: vec![MissingRequirement {
-                id: "iso-file-copy".into(),
-                explanation: "ISO file-copy boot setup is not implemented in this release".into(),
-                remedy: Some("use a hybrid ISO in disk-image mode".into()),
-            }],
-        },
-    );
+    // Windows installer ISOs are extracted in-process; the desktop decides
+    // per image whether a file-copy layout exists for it.
+    report.set(Capability::IsoExtraction, CapabilityState::Available);
     report.set(
         Capability::ImageCaptureDd,
         CapabilityState::Unavailable {
@@ -536,16 +529,8 @@ pub fn probe_capabilities() -> CapabilityReport {
         ],
         "grub / grub2",
     );
-    report.set(
-        Capability::UefiNtfs,
-        CapabilityState::Unavailable {
-            missing: vec![MissingRequirement {
-                id: "assets/uefi/uefi-ntfs.img".into(),
-                explanation: "signed UEFI:NTFS payload not packaged".into(),
-                remedy: Some("vendor verified UEFI:NTFS payload under assets/uefi".into()),
-            }],
-        },
-    );
+    // Built into the binary (rufus-helper/assets/uefi-ntfs).
+    report.set(Capability::UefiNtfs, CapabilityState::Available);
     report.set(
         Capability::LinuxPersistence,
         CapabilityState::Unavailable {

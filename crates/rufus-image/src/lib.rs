@@ -11,6 +11,8 @@ use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use thiserror::Error;
 
+pub mod isofs;
+
 #[derive(Debug, Error)]
 pub enum ImageError {
     #[error("io error: {0}")]
@@ -186,46 +188,16 @@ pub fn analyze_file(path: &Path, file: &mut File) -> Result<ImageReport, ImageEr
                 .push("ISOHybrid image: raw disk-image mode is available.".into());
         }
 
-        // Lightweight content heuristics from the path name (full ISO walk is optional).
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if name.contains("win") || name.contains("windows") {
-            report.windows_installer = true;
-            report.preferred_filesystem = Some(FileSystem::Ntfs);
-            report.has_efi = true;
-            report.notes.push(
-                "Windows installer detected by name; confirm with full analysis after open.".into(),
-            );
-        }
-        if name.contains("ubuntu")
-            || name.contains("fedora")
-            || name.contains("arch")
-            || name.contains("debian")
-            || name.contains("mint")
-            || name.contains("manjaro")
-            || name.contains("pop")
-            || name.contains("kali")
-        {
-            report.linux_live = true;
-            report.persistence_supported = true;
-            report.has_efi = true;
-            report.has_bios = true;
-            report.preferred_boot_mode = BootMode::Dual;
-            report
-                .notes
-                .push("Linux live image heuristics enabled persistence option.".into());
-        }
-
         if is_iso {
             report.label_hint = read_iso_label(file)?;
+            if let Some(listing) = isofs::list(file)? {
+                apply_listing(&mut report, &listing);
+            } else {
+                report
+                    .notes
+                    .push("The ISO file system could not be listed.".into());
+            }
         }
-
-        // Prefer dual boot for generic ISOs.
-        report.has_efi = true;
-        report.has_bios = report.has_bios || report.isohybrid;
         return Ok(report);
     }
 
@@ -266,6 +238,40 @@ fn detect_iso(file: &mut File) -> Result<bool, ImageError> {
     let mut magic = [0u8; 5];
     let n = file.read(&mut magic)?;
     Ok(n == 5 && &magic == b"CD001")
+}
+
+/// Classify an ISO from its contents, as upstream Rufus's image scan does.
+fn apply_listing(report: &mut ImageReport, listing: &isofs::IsoListing) {
+    let any = |paths: &[&str]| paths.iter().any(|path| listing.has_file(path));
+    let has_dir = |path: &str| listing.find(path).is_some_and(|entry| entry.is_dir);
+    report.has_efi = any(&[
+        "efi/boot/bootx64.efi",
+        "efi/boot/bootia32.efi",
+        "efi/boot/bootaa64.efi",
+    ]);
+    report.has_bios = report.has_bios
+        || any(&[
+            "bootmgr",
+            "isolinux/isolinux.bin",
+            "boot/grub/i386-pc/eltorito.img",
+        ]);
+    report.windows_installer = any(&[
+        "sources/install.wim",
+        "sources/install.esd",
+        "sources/install.swm",
+    ]) && any(&["bootmgr", "bootmgr.efi"]);
+    report.largest_file_bytes = listing.largest_file().map(|entry| entry.size);
+    if report.windows_installer {
+        report.preferred_filesystem = Some(FileSystem::Ntfs);
+        report.preferred_boot_mode = BootMode::Uefi;
+        report.notes.push("Windows installer media.".into());
+    } else if ["casper", "live", "isolinux", "boot/grub", "arch"]
+        .iter()
+        .any(|dir| has_dir(dir))
+    {
+        report.linux_live = true;
+        report.persistence_supported = has_dir("casper") || has_dir("live");
+    }
 }
 
 const ISO_SECTOR: u64 = 2048;
@@ -490,6 +496,37 @@ mod tests {
         let report = analyze(&path).expect("analyze ISO fixture");
         std::fs::remove_file(&path).expect("remove ISO fixture");
         report
+    }
+
+    #[test]
+    fn windows_media_is_recognized_from_contents_not_its_name() {
+        use crate::isofs::fixture::{udf, Node};
+        let mut bytes = udf(vec![
+            Node::File("bootmgr", 473_364),
+            Node::Dir(
+                "efi",
+                vec![Node::Dir(
+                    "boot",
+                    vec![Node::File("bootx64.efi", 3_087_400)],
+                )],
+            ),
+            Node::Dir("sources", vec![Node::File("install.wim", 8_155_984_950)]),
+        ]);
+        let pvd = 16 * 2048;
+        bytes[pvd] = 1;
+        bytes[pvd + 1..pvd + 6].copy_from_slice(b"CD001");
+        let report = analyze_bytes("plain-name", &bytes);
+        assert_eq!(report.kind, ImageSourceKind::Iso);
+        assert!(report.windows_installer);
+        assert!(report.has_efi);
+        assert!(report.has_bios);
+        assert_eq!(report.preferred_filesystem, Some(FileSystem::Ntfs));
+        assert_eq!(report.largest_file_bytes, Some(8_155_984_950));
+
+        // A file named like Windows is not treated as Windows media.
+        let report = analyze_bytes("windows-11", &iso_fixture(b"NOT_WINDOWS"));
+        assert!(!report.windows_installer);
+        assert!(!report.has_efi);
     }
 
     #[test]

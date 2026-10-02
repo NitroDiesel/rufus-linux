@@ -20,7 +20,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_VERSION: 0.1.5
+  PACKAGE_VERSION: 0.1.6
 
 jobs:
   debian:
@@ -368,7 +368,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$tag" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Rufus Linux $version" \
+              --title "v$version" \
               --notes-file /tmp/release-notes.md \
               --prerelease=false \
               --latest
@@ -381,7 +381,7 @@ jobs:
             gh release create "$tag" dist/* \
               --repo "$GITHUB_REPOSITORY" \
               "${tag_args[@]}" \
-              --title "Rufus Linux $version" \
+              --title "v$version" \
               --notes-file /tmp/release-notes.md \
               --latest
           fi

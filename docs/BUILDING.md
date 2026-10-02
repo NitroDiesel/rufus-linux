@@ -7,7 +7,8 @@ Minimum build dependencies:
 - Rust stable toolchain (`cargo`, `rustc`)
 - `pkg-config`
 - Fontconfig, FreeType, libxkbcommon, and Wayland/X11 development files for Slint's native platform backend
-- polkit and `pkexec` at runtime for destructive operations
+- udisks2 at runtime for writing and formatting (the native helper with polkit
+  and `pkexec` is the fallback where udisks2 is not running)
 
 ```sh
 cargo build
@@ -15,7 +16,7 @@ cargo test
 cargo run
 ```
 
-Use `cargo build --release` for packaging. Do not run the complete GUI with `sudo`; privilege belongs in the helper only.
+Use `cargo build --release` for packaging. Do not run the complete GUI with `sudo`; privileged steps belong to udisks2 or the helper only.
 
 The desktop pins a direct winit-backend dependency to the same version as Slint
 to set the initial native window size before creating the OpenGL drawable. It
@@ -71,8 +72,8 @@ Native packages install `qemu-nbd`, `nbdinfo`, and `nbdcopy` so VHD/VHDX
 conversion is available after install: `qemu-utils libnbd-bin` on Debian/Ubuntu
 or `qemu-img libnbd` on Fedora/Arch. `bzip2` remains test-only. Host tools also
 enable read-only desktop capacity inspection; writing additionally needs
-`nbdcopy` and the native helper. AppImage users still supply the host display
-stack and a matching native helper for destructive writes. Run the desktop
+`nbdcopy`. AppImage users supply the host display stack; writes go through the
+host's udisks2. Run the desktop
 preview test as a non-root user with `cargo test -p rufus-linux
 desktop_virtual_preview --locked -- --ignored`. See
 [`VIRTUAL_DISKS.md`](VIRTUAL_DISKS.md) for remaining boot and physical-media
@@ -109,7 +110,17 @@ install -Dm0644 packaging/tmpfiles/rufus-linux.conf \
   "$DESTDIR/usr/lib/tmpfiles.d/rufus-linux.conf"
 ```
 
-If the helper is not built, omit the helper, polkit policy, and tmpfiles rule. The desktop application must then remain in read-only/demo mode rather than attempting raw access itself.
+If the helper is not built, omit the helper, polkit policy, and tmpfiles rule. The desktop then writes only through udisks2 and never attempts raw access itself.
+
+The udisks2 integration test drives the real daemon on loop devices it creates
+(no root, no real disks). Run it from an active desktop session:
+
+```sh
+cargo test -p rufus-helper loop_devices -- --ignored
+```
+
+Set `RUFUS_TEST_KEEP_DIR` (and optionally `RUFUS_TEST_EFI_APP`) to keep the
+resulting Windows-layout disk images for OVMF/SeaBIOS boot checks.
 
 ## AppImage
 
@@ -119,7 +130,7 @@ workflow, then stage and verify it with:
 ```sh
 packaging/appimage/stage-appdir.sh target/release/rufus-linux RufusLinux.AppDir
 appimagetool --runtime-file runtime-x86_64 RufusLinux.AppDir rufus-linux.AppImage
-packaging/appimage/verify-appimage.sh rufus-linux.AppImage 0.1.5 2.28
+packaging/appimage/verify-appimage.sh rufus-linux.AppImage 0.1.6 2.28
 ```
 
 The release workflow supplies SHA-verified appimagetool and type-2 runtime

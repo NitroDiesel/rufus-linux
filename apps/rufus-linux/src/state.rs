@@ -17,7 +17,11 @@ use rufus_helper_protocol::{
 use rufus_image::ImageReport;
 use rufus_linux_platform::{list_block_devices, probe_capabilities};
 
+use crate::helper_client::{detect_backend, Backend};
+
 pub const DEFAULT_VOLUME_LABEL: &str = "RUFUS";
+/// Largest file FAT32 can store.
+const FAT32_MAX_FILE: u64 = 4 * 1024 * 1024 * 1024 - 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BootSelection {
     DiskOrIso,
@@ -85,6 +89,8 @@ pub struct AppState {
     pub log: Vec<String>,
     pub capability_hint: String,
     capabilities: rufus_core::capability::CapabilityReport,
+    /// How writes run here, or why they cannot.
+    pub backend: Result<Backend, String>,
 }
 
 impl AppState {
@@ -128,7 +134,12 @@ impl AppState {
             log: vec![format!("Rufus Linux {} ready.", env!("CARGO_PKG_VERSION"))],
             capability_hint: String::new(),
             capabilities,
+            backend: detect_backend(),
         };
+        match &s.backend {
+            Ok(backend) => s.push_log(format!("Disk access through {}.", backend.describe())),
+            Err(reason) => s.push_log(reason.clone()),
+        }
         s.refresh_devices();
         s.recompute();
         s
@@ -154,6 +165,10 @@ impl AppState {
     }
 
     pub fn refresh_devices(&mut self) {
+        // udisks2 may have started or stopped since the last scan.
+        if self.backend.is_err() {
+            self.backend = detect_backend();
+        }
         let selected_fingerprint = self.selected().map(|device| device.fingerprint.clone());
         let show_fixed = self.list_fixed_disks || self.list_usb_hdd;
         match list_block_devices(show_fixed) {
@@ -261,6 +276,11 @@ impl AppState {
                         self.filesystem_label = fs.as_str().to_owned();
                     }
                 }
+                if report.windows_installer {
+                    // Upstream's default for current Windows media.
+                    self.partition_scheme_label = "GPT".into();
+                    self.target_system_label = "UEFI (non CSM)".into();
+                }
                 self.persistence_enabled = report.persistence_supported
                     && self.capabilities.supports(Capability::LinuxPersistence);
                 if self.persistence_enabled {
@@ -339,11 +359,8 @@ impl AppState {
                     .to_owned(),
             );
         }
-        if !crate::helper_client::helper_available() {
-            hints.push(
-                "Install the packaged privileged helper and polkit to enable destructive actions."
-                    .to_owned(),
-            );
+        if let Err(reason) = &self.backend {
+            hints.push(reason.clone());
         }
         if let Some(reason) = self.operation_unavailable_reason() {
             hints.push(reason);
@@ -360,7 +377,7 @@ impl AppState {
             && !self.is_busy
             && (!needs_image || has_image)
             && !self.filesystem_label.starts_with("ReFS")
-            && crate::helper_client::helper_available()
+            && self.backend.is_ok()
             && self.operation_unavailable_reason().is_none();
 
         if let Some(report) = &self.image_report {
@@ -398,7 +415,11 @@ impl AppState {
                 "Install the formatter provider for {filesystem_name} to enable this option."
             ));
         }
-        if self.check_bad_blocks && !self.capabilities.supports(Capability::BadBlocksCheck) {
+        let own_bad_block_test = matches!(self.backend, Ok(Backend::Udisks { .. }));
+        if self.check_bad_blocks
+            && !own_bad_block_test
+            && !self.capabilities.supports(Capability::BadBlocksCheck)
+        {
             return Some("Install badblocks from e2fsprogs to test the complete device.".into());
         }
         match self.boot_selection {
@@ -425,10 +446,7 @@ impl AppState {
                 (!self.capabilities.supports(Capability::CompressedImageWrite))
                     .then(|| "Install the matching decompressor for this image.".into())
             }
-            Some(ImageSourceKind::Iso) => Some(
-                "This ISO is not hybrid. File-copy boot media is not available yet; choose an ISOHybrid image."
-                    .into(),
-            ),
+            Some(ImageSourceKind::Iso) => self.windows_media_unavailable_reason(),
             Some(ImageSourceKind::Vhd | ImageSourceKind::Vhdx) => {
                 (!self.capabilities.supports(Capability::VirtualDiskWrite)).then(|| {
                     "Install qemu-nbd, nbdinfo, and nbdcopy to write this virtual disk. Container bytes are never copied as a disk image.".into()
@@ -443,6 +461,82 @@ impl AppState {
             }
             Some(ImageSourceKind::None) => Some("Select a supported disk image.".into()),
         }
+    }
+
+    /// Why the selected options cannot build Windows installer media.
+    fn windows_media_unavailable_reason(&self) -> Option<String> {
+        let report = self.image_report.as_ref()?;
+        if !report.windows_installer {
+            return Some(
+                "This ISO is not hybrid and is not Windows installation media. File-copy boot media for Linux ISOs is not available yet; choose an ISOHybrid image."
+                    .into(),
+            );
+        }
+        if let Ok(backend) = &self.backend {
+            if !backend.supports_file_copy() {
+                return Some(
+                    "Windows installer media is created through the udisks2 disk service; install or start udisks2."
+                        .into(),
+                );
+            }
+        }
+        let filesystem = self.parse_filesystem().ok()?;
+        if !matches!(
+            filesystem,
+            FileSystem::Ntfs | FileSystem::ExFat | FileSystem::Fat32
+        ) {
+            return Some("Windows installer media needs NTFS, exFAT, or FAT32.".into());
+        }
+        if filesystem == FileSystem::Fat32
+            && report
+                .largest_file_bytes
+                .is_some_and(|size| size > FAT32_MAX_FILE)
+        {
+            return Some(
+                "This image has a file larger than 4 GB, which FAT32 cannot store. Choose NTFS."
+                    .into(),
+            );
+        }
+        let scheme = self.parse_scheme();
+        if scheme == PartitionScheme::SuperFloppy {
+            return Some("Windows installer media needs the MBR or GPT partition scheme.".into());
+        }
+        let boot_mode = self.parse_boot_mode();
+        let bios = matches!(boot_mode, BootMode::Bios | BootMode::Dual);
+        let uefi = matches!(boot_mode, BootMode::Uefi | BootMode::Dual);
+        if bios && scheme != PartitionScheme::Mbr {
+            return Some("BIOS boot needs the MBR partition scheme.".into());
+        }
+        if bios && filesystem == FileSystem::ExFat {
+            return Some(
+                "BIOS boot needs NTFS or FAT32; exFAT media boots through UEFI only.".into(),
+            );
+        }
+        if bios && !report.has_bios {
+            return Some("This image has no BIOS boot manager; choose UEFI (non CSM).".into());
+        }
+        if uefi && !report.has_efi {
+            return Some("This image has no UEFI boot loader; choose BIOS (CSM).".into());
+        }
+        None
+    }
+
+    /// Keep the target system consistent with the scheme, as upstream does.
+    pub fn select_partition_scheme(&mut self, label: &str) {
+        self.partition_scheme_label = label.to_owned();
+        let (has_bios, has_efi) = self
+            .image_report
+            .as_ref()
+            .map_or((true, true), |report| (report.has_bios, report.has_efi));
+        match self.parse_scheme() {
+            PartitionScheme::Gpt => self.target_system_label = "UEFI (non CSM)".into(),
+            PartitionScheme::Mbr if has_bios && has_efi => {
+                self.target_system_label = "BIOS or UEFI".into()
+            }
+            PartitionScheme::Mbr if has_bios => self.target_system_label = "BIOS (CSM)".into(),
+            _ => {}
+        }
+        self.recompute();
     }
 
     pub fn action_name(&self) -> &'static str {
@@ -1092,5 +1186,78 @@ mod tests {
         st.filesystem_label = "ReFS (unavailable)".into();
         st.boot_selection = BootSelection::NonBootable;
         assert!(st.build_plan().is_err());
+    }
+
+    fn windows_report() -> ImageReport {
+        let mut report = report_with_label(Some("CCCOMA_X64FRE_EN-US_DV9"));
+        report.kind = ImageSourceKind::Iso;
+        report.windows_installer = true;
+        report.has_efi = true;
+        report.has_bios = true;
+        report.preferred_filesystem = Some(FileSystem::Ntfs);
+        report.largest_file_bytes = Some(8_155_984_950);
+        report
+    }
+
+    #[test]
+    fn windows_iso_options_follow_upstream_rules() {
+        let mut st = AppState::new();
+        st.backend = Ok(Backend::Udisks {
+            version: "2.11.2".into(),
+        });
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+        inspect(&mut st, windows_report());
+        st.filesystem_label = "NTFS".into();
+        st.recompute();
+        assert_eq!(st.partition_scheme_label, "GPT");
+        assert_eq!(st.target_system_label, "UEFI (non CSM)");
+        assert_eq!(st.windows_media_unavailable_reason(), None);
+        assert_eq!(
+            st.build_plan().expect("Windows plan").write_mode,
+            WriteMode::IsoFileCopy
+        );
+
+        st.filesystem_label = "FAT32".into();
+        let reason = st
+            .windows_media_unavailable_reason()
+            .expect("FAT32 too small");
+        assert!(reason.contains("larger than 4 GB"), "{reason}");
+
+        st.filesystem_label = "exFAT".into();
+        assert_eq!(st.windows_media_unavailable_reason(), None);
+
+        st.filesystem_label = "NTFS".into();
+        st.select_partition_scheme("MBR");
+        assert_eq!(st.target_system_label, "BIOS or UEFI");
+        assert_eq!(st.windows_media_unavailable_reason(), None);
+        st.filesystem_label = "exFAT".into();
+        assert!(st
+            .windows_media_unavailable_reason()
+            .expect("exFAT has no BIOS boot record")
+            .contains("UEFI only"));
+
+        st.filesystem_label = "NTFS".into();
+        st.target_system_label = "BIOS (CSM)".into();
+        st.select_partition_scheme("GPT");
+        assert_eq!(st.target_system_label, "UEFI (non CSM)");
+
+        st.backend = Ok(Backend::NativeHelper);
+        assert!(st
+            .windows_media_unavailable_reason()
+            .expect("native helper cannot copy files")
+            .contains("udisks2"));
+    }
+
+    #[test]
+    fn non_windows_iso_still_explains_the_missing_file_copy_mode() {
+        let mut st = AppState::new();
+        let mut report = windows_report();
+        report.windows_installer = false;
+        inspect(&mut st, report);
+        assert!(st
+            .windows_media_unavailable_reason()
+            .expect("Linux file-copy is not available")
+            .contains("ISOHybrid"));
     }
 }

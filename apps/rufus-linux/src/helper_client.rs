@@ -1,4 +1,5 @@
-//! Unprivileged client for the short-lived, polkit-authorized helper.
+//! Starts disk operations through udisks2 (plug and play) or, where udisks2
+//! is missing, the short-lived, polkit-authorized native helper.
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -9,6 +10,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc::Sender, Arc, Mutex};
 
+use rufus_core::progress::CancellationToken;
+use rufus_helper::{execute_with_udisks, udisks_readiness, ExecutionOptions, HelperError};
 use rufus_helper_protocol::{decode_line, encode_line, HelperEvent, HelperRequest};
 
 const PKEXEC: &str = "/usr/bin/pkexec";
@@ -40,14 +43,57 @@ pub enum WorkerMessage {
     Cancelled,
 }
 
+/// How destructive operations run on this system.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Backend {
+    /// The system udisks2 daemon, as the desktop user. Needs nothing
+    /// installed, so the AppImage works on its own.
+    Udisks { version: String },
+    /// The packaged root helper started through pkexec.
+    NativeHelper,
+}
+
+impl Backend {
+    /// Windows installer media is built through udisks2 only.
+    pub fn supports_file_copy(&self) -> bool {
+        matches!(self, Self::Udisks { .. })
+    }
+
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Udisks { version } => format!("udisks2 {version}"),
+            Self::NativeHelper => "the native privileged helper".into(),
+        }
+    }
+}
+
+/// Prefer udisks2; fall back to the native helper where it is installed.
+pub fn detect_backend() -> Result<Backend, String> {
+    match udisks_readiness() {
+        Ok(version) => Ok(Backend::Udisks { version }),
+        Err(udisks_error) => helper_readiness()
+            .map(|()| Backend::NativeHelper)
+            .map_err(|_| {
+                format!(
+                    "Writing needs the udisks2 disk service, which is not running ({udisks_error}). Install or start udisks2, or install the Rufus Linux native package."
+                )
+            }),
+    }
+}
+
 pub struct RunningHelper {
     child: Arc<Mutex<Option<Child>>>,
     cancelled: Arc<AtomicBool>,
+    in_process: Option<CancellationToken>,
 }
 
 impl RunningHelper {
     pub fn cancel(&self) -> Result<(), String> {
         self.cancelled.store(true, Ordering::Release);
+        if let Some(token) = &self.in_process {
+            token.request();
+            return Ok(());
+        }
         let guard = self
             .child
             .lock()
@@ -58,6 +104,39 @@ impl RunningHelper {
         }
         Ok(())
     }
+}
+
+/// Run the request in this process, as the desktop user, through udisks2.
+fn launch_udisks(
+    request: &HelperRequest,
+    sender: Sender<WorkerMessage>,
+) -> Result<RunningHelper, String> {
+    let cancel = CancellationToken::new();
+    let options = ExecutionOptions {
+        dry_run: false,
+        cancel: cancel.clone(),
+    };
+    let request = request.clone();
+    let events = sender.clone();
+    std::thread::Builder::new()
+        .name("udisks-job".into())
+        .spawn(move || {
+            let sink = Box::new(move |event| {
+                let _ = events.send(WorkerMessage::Event(event));
+            });
+            let message = match execute_with_udisks(request, options, sink) {
+                Ok(_) => return,
+                Err(HelperError::Cancelled) => WorkerMessage::Cancelled,
+                Err(error) => WorkerMessage::Failed(error.to_string()),
+            };
+            let _ = sender.send(message);
+        })
+        .map_err(|error| format!("could not start the write job: {error}"))?;
+    Ok(RunningHelper {
+        child: Arc::new(Mutex::new(None)),
+        cancelled: Arc::new(AtomicBool::new(false)),
+        in_process: Some(cancel),
+    })
 }
 
 fn request_termination(child: &Child) -> std::io::Result<()> {
@@ -84,10 +163,6 @@ fn isolate_process_group(command: &mut Command) {
             Ok(())
         });
     }
-}
-
-pub fn helper_available() -> bool {
-    helper_readiness().is_ok()
 }
 
 fn trusted_system_file(path: &str, executable: bool) -> Result<fs::Metadata, String> {
@@ -180,6 +255,17 @@ fn registered_action_authorizes_helper() -> Result<(), String> {
 }
 
 pub fn launch(
+    backend: &Backend,
+    request: &HelperRequest,
+    sender: Sender<WorkerMessage>,
+) -> Result<RunningHelper, String> {
+    match backend {
+        Backend::Udisks { .. } => launch_udisks(request, sender),
+        Backend::NativeHelper => launch_native(request, sender),
+    }
+}
+
+fn launch_native(
     request: &HelperRequest,
     sender: Sender<WorkerMessage>,
 ) -> Result<RunningHelper, String> {
@@ -282,6 +368,7 @@ pub fn launch(
     Ok(RunningHelper {
         child: shared_child,
         cancelled,
+        in_process: None,
     })
 }
 

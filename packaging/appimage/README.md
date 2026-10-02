@@ -5,18 +5,18 @@ Linux distributions. It is built against glibc 2.28 and can run without FUSE
 through AppImage's `--appimage-extract-and-run` fallback.
 
 The artifact deliberately contains no privileged helper, polkit policy,
-setuid file, partitioning tool, or filesystem formatter. Device discovery,
-image inspection, option selection, checksums, and logs work immediately.
-Writing and formatting remain disabled until the matching native Rufus Linux
-package installs the root-owned helper and exact-path polkit policy. This keeps
-user-controlled AppImage bytes outside the privileged execution boundary.
+setuid file, partitioning tool, or filesystem formatter. Everything works
+immediately: writing, formatting, and Windows installer media go through the
+host's udisks2 daemon, which performs the privileged steps under its own polkit
+policy. User-controlled AppImage bytes never run as root. Without udisks2,
+destructive actions need the native package's root-owned helper instead.
 
 The continuation branch links the helper library's read-only inspection API,
 not the helper executable or authorization policy. Optional VHD/VHDX capacity
 previews use host `/usr/bin/qemu-nbd` and `/usr/bin/nbdinfo` as the current user.
 Those providers are not bundled; missing tools leave recognition available
-and explain why disk size is unknown. Conversion writes still require the
-matching native helper plus host `qemu-nbd`, `nbdinfo`, and `nbdcopy`.
+and explain why disk size is unknown. Conversion writes additionally need host
+`nbdcopy`.
 
 `stage-appdir.sh` creates the AppDir from an old-glibc release binary.
 `verify-appimage.sh` extracts and audits the final artifact, including its

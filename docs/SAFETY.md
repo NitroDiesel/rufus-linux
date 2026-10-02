@@ -4,13 +4,22 @@ The safety boundary is more important than feature parity. The desktop process m
 
 ## Process boundary
 
+Rufus Linux has two execution paths for the same versioned request. It
+prefers the first.
+
 ```text
 Slint desktop application (user)
   -> inspect Linux sysfs, mountinfo, and swap state
   -> build an immutable operation plan
   -> show target-specific confirmation
-  -> request one polkit authorization
-  -> send one versioned request to a narrow helper over standard I/O
+  -> udisks2 path: execute in a worker thread as the user
+       -> revalidate the target, match it to the udisks2 object by
+          major:minor, size, and serial
+       -> udisks2 (root, system service, its own polkit policy) unmounts,
+          partitions, runs mkfs, mounts as the user, and hands out raw
+          descriptors after authorization
+  -> helper path (no udisks2): request one polkit authorization and
+     send the request to a narrow helper over standard I/O
 
 Privileged helper (root, no UI)
   -> independently resolve and revalidate the target
@@ -76,12 +85,28 @@ The silent installer retains three separate acknowledgements: other destination 
 
 Logs include the operation plan, stable device identity, tools/versions, stage transitions, byte counts, warnings, and error causes. They exclude authorization tokens, user passwords, full network credentials, and unrelated device contents. Persistent logging is opt-in.
 
+## udisks2 path
+
+No code of ours runs as root. The desktop never opens a block device node
+itself; raw descriptors come only from `Block.OpenDevice`, opened `O_EXCL`
+and checked against the selected major:minor before use, and each such
+operation is authorized by the system's `org.freedesktop.udisks2.open-device`
+policy (administrator authentication, kept briefly). Partitioning, mkfs, and
+mounting a removable drive follow the system's udisks2 policy, which allows
+them on an active local session without a password; the in-app destructive
+confirmation is the guard there, exactly as for desktop disk utilities.
+The same revalidation, source-on-target, size, and identity checks as the
+helper run immediately before the first destructive call. Mounts made for
+file copies are always released through udisks2, including on failure.
+
 ## Polkit policy
 
 The packaged policy in `packaging/polkit/` authorizes a single helper entry point. Authorization is expected for each destructive operation (`auth_admin`), is never granted to inactive sessions, and is not replaced by permissive udev rules such as `MODE="0666"`.
 
-The AppImage never supplies the executable that polkit authorizes. Portable
-user-owned bytes remain unprivileged; destructive actions require the same
-root-owned `/usr/libexec/rufus-linux-helper` and exact-path policy installed by
-a native package. The desktop checks file ownership, write permissions, policy
-content, and the effective registered action before launching `pkexec`.
+The AppImage never supplies an executable that polkit authorizes. Portable
+user-owned bytes stay unprivileged and reach the disk only through udisks2, a
+root-owned system service. Where udisks2 is unavailable, destructive actions
+require the root-owned `/usr/libexec/rufus-linux-helper` and exact-path policy
+installed by a native package; the desktop checks file ownership, write
+permissions, policy content, and the effective registered action before
+launching `pkexec`.

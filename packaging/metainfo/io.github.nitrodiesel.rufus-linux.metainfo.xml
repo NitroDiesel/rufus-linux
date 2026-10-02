@@ -23,6 +23,14 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.6" date="2026-10-02">
+      <description>
+        <p>Creates Windows installer USB drives from Windows ISOs, with the
+        UEFI:NTFS boot partition and optional BIOS boot, as Rufus does. Writing
+        and formatting now work through the system disk service, so the
+        portable AppImage needs nothing extra installed.</p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-10-01">
       <description>
         <p>Proposes the selected ISO's volume name as the USB label, as Rufus

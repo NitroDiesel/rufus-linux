@@ -11,6 +11,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+fixtures = []
+
 [dependencies]
 rufus-core = { path = "../rufus-core" }
 sha2 = "0.10"
