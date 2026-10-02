@@ -23,3 +23,8 @@ thiserror = "2"
 fs2 = "0.4"
 sha2 = "0.10"
 libc = "0.2"
+rufus-image = { path = "../rufus-image" }
+zbus = { version = "4.4", default-features = false, features = ["async-io"] }
+
+[dev-dependencies]
+rufus-image = { path = "../rufus-image", features = ["fixtures"] }

@@ -175,16 +175,16 @@ pub fn plan_boot(
 /// External tool / package needed to install a bootloader kind.
 pub fn provider_hint(kind: BootloaderKind) -> Option<&'static str> {
     match kind {
-        BootloaderKind::None | BootloaderKind::IsoHybridNative | BootloaderKind::WindowsBootmgr => {
-            None
-        }
+        BootloaderKind::None
+        | BootloaderKind::IsoHybridNative
+        | BootloaderKind::WindowsBootmgr
+        | BootloaderKind::UefiNtfs => None,
         BootloaderKind::Syslinux4 | BootloaderKind::Syslinux6 => {
             Some("syslinux package (syslinux/extlinux)")
         }
         BootloaderKind::Grub2 => Some("grub package (grub-install / grub2-install)"),
         BootloaderKind::Grub4Dos => Some("packaged GRUB4DOS assets"),
         BootloaderKind::FreeDos => Some("packaged FreeDOS assets under assets/freedos"),
-        BootloaderKind::UefiNtfs => Some("signed UEFI:NTFS payload under assets/uefi"),
     }
 }
 

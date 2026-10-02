@@ -18,12 +18,22 @@ Debian/Ubuntu, and Fedora. Feature parity means implementing an upstream concept
 safely on Linux; it does not mean exposing a control before its full operation
 is implemented and verified.
 
-## Current baseline: 0.1.5
+## Current baseline: 0.1.6
 
-Version 0.1.5 is the continuation baseline. Its public installers belong in the
-[v0.1.5 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.5).
+Version 0.1.6 is the continuation baseline. Its public installers belong in the
+[v0.1.6 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.6).
+Release titles are `v<version>`. [`PARITY.md`](PARITY.md) tracks every
+upstream Rufus feature and the order in which the rest will land.
 
 Completed product work includes:
+
+- plug-and-play writing: all destructive work runs through the system udisks2
+  daemon as the desktop user, so the AppImage needs nothing installed; the
+  native helper remains the fallback where udisks2 is not running;
+- Windows installer media from Windows ISOs (detected by contents) in the
+  upstream layout: NTFS/exFAT plus the signed UEFI:NTFS partition, or FAT32,
+  with optional Windows 7 MBR and NTFS/FAT32 boot records for BIOS, file-level
+  read-back verification, and an in-process UDF/ISO 9660 reader;
 
 - a native Slint desktop application with aligned compact controls, light and
   dark themes, keyboard-operable custom buttons, true blocking modals, and a
@@ -53,8 +63,8 @@ Completed product work includes:
 
 The authoritative feature truth is
 [`CAPABILITIES.md`](CAPABILITIES.md). Recognized but blocked flows include
-ordinary non-hybrid ISO file-copy media, Windows installer media, Windows To
-Go, parent-dependent/4Kn/journal-replay VHD/VHDX, FreeDOS, persistence,
+non-hybrid Linux ISO file-copy media, FAT32 Windows media with a WIM over
+4 GB, Windows To Go, parent-dependent/4Kn/journal-replay VHD/VHDX, FreeDOS, persistence,
 bootloader installation, Windows 11 customization, Secure Boot revocation
 checks, and drive capture. Keep these disabled with a reason until an
 end-to-end implementation and its fixtures, integration tests, and boot tests
@@ -69,9 +79,9 @@ The user-facing flow is:
 Slint UI (unprivileged user)
   -> Linux device/image inspection
   -> immutable operation plan and target-specific confirmation
-  -> pkexec authorization
-  -> one versioned NDJSON request
-  -> root-owned one-operation helper
+  -> one versioned request, executed either
+       in-process through udisks2 (default; udisks2 does the root work), or
+       by the root-owned one-operation helper through pkexec (fallback)
   -> structured progress, verification, flush, and exit
 ```
 
@@ -86,8 +96,10 @@ Repository ownership is divided as follows:
 - `crates/rufus-image/` owns bounded image recognition and analysis.
 - `crates/rufus-helper-protocol/` owns the versioned and size-bounded NDJSON
   request/event contract.
-- `crates/rufus-helper/` owns the narrow privileged executor and all destructive
-  disk operations.
+- `crates/rufus-helper/` owns all destructive disk operations: the udisks2
+  engine (`udisks.rs`, `udisks_engine.rs`, `windows_media.rs` with the bundled
+  UEFI:NTFS and ms-sys boot-record assets) and the narrow privileged
+  executor.
 - `crates/rufus-boot/`, `rufus-downloads/`, and `rufus-i18n/` contain planned or
   partial supporting domains; their presence does not make a product flow
   available.
@@ -107,8 +119,10 @@ authorization, helper protocol, destructive operations, cancellation, external
 tools, downloads, or logs. The following are release boundaries, not optional
 implementation details:
 
-- The desktop stays unprivileged. Destructive work runs only through
-  `/usr/bin/pkexec` and the root-owned `/usr/libexec/rufus-linux-helper`.
+- The desktop stays unprivileged. Destructive work runs only through the
+  system udisks2 daemon (raw descriptors from `OpenDevice`, never by opening
+  device nodes) or, as a fallback, `/usr/bin/pkexec` and the root-owned
+  `/usr/libexec/rufus-linux-helper`.
 - The helper accepts a typed allowlisted operation, never a shell command or an
   arbitrary root-owned output path.
 - Device paths are display names, not identity. Revalidate the stable path,
@@ -126,14 +140,12 @@ implementation details:
 
 ### AppImage trust boundary
 
-The AppImage is a portable **unprivileged frontend**, not a self-contained
-privileged disk writer. It must not contain the helper, polkit policy,
-formatters, partitioning tools, setuid files, glibc, or graphics drivers.
-Discovery, inspection, checksums, option selection, and logs work portably.
-Writing and formatting become available only when a matching native package
-has installed the fixed-path, root-owned helper and policy.
+The AppImage is a portable **unprivileged frontend**. It must not contain the
+helper, polkit policy, formatters, partitioning tools, setuid files, glibc, or
+graphics drivers. Everything, including writing, works portably because the
+host's udisks2 performs the privileged steps under its own policy.
 
-The GUI checks helper and policy ownership, write permissions, exact policy
+Without udisks2, the GUI falls back to the native helper and checks helper and policy ownership, write permissions, exact policy
 action/path, effective polkit registration, and helper version immediately
 before launch. Preserve the fixed privileged identity; running bytes from an
 AppImage mount or user-owned extraction directory through `pkexec` would break
@@ -239,8 +251,12 @@ included in 0.1.3.
 These are known follow-ups, not claims that the current release is broken:
 
 - Run a packaged, real-polkit smoke test on disposable physical USB media for
-  formatting, raw writing, verification, cancellation, and disconnect during
-  write. Automated tests and file/loop-backed tests do not replace this gate.
+  formatting, raw writing, Windows media, verification, cancellation, and
+  disconnect during write. Automated tests, loop-backed udisks2 tests, and
+  QEMU boots do not replace this gate.
+- Windows media follow-ups, in `PARITY.md` order: split WIM for FAT32, the
+  Windows User Experience (`autounattend.xml`) options, then non-hybrid Linux
+  ISO file-copy with Syslinux/GRUB.
 - Desktop theme startup currently uses `RUFUS_LINUX_THEME` or `GTK_THEME`.
   Portal-backed system theme detection and persistence of a manual
   system/light/dark preference remain unimplemented.
@@ -253,11 +269,10 @@ These are known follow-ups, not claims that the current release is broken:
   test the chosen behavior.
 - Filesystem choices are provider-driven. NTFS appears only when a supported
   `mkfs.ntfs`/`mkntfs` provider is installed; native packages install the
-  provider, while the AppImage deliberately relies on the host and still needs
-  the native helper for destructive formatting.
+  provider, while the AppImage relies on the host's tools through udisks2.
 - The AppImage compatibility claim is x86_64 glibc 2.28+ desktop Linux with a
   FUSE extraction fallback. Alpine/musl, NixOS/non-FHS layouts, headless hosts,
-  and systems without polkit are not covered by a universal “any distro” claim.
+  and systems without udisks2 or polkit are not covered by a universal “any distro” claim.
 
 ## Repository administration follow-ups
 

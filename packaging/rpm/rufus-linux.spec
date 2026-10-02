@@ -1,5 +1,5 @@
 Name:           rufus-linux
-Version:        0.1.5
+Version:        0.1.6
 Release:        1%{?dist}
 Summary:        Format and create bootable USB drives
 License:        GPL-3.0-or-later
@@ -9,7 +9,7 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  cargo rust pkgconf fontconfig-devel freetype-devel
 BuildRequires:  libxkbcommon-devel wayland-devel libX11-devel libxcb-devel
 BuildRequires:  systemd-rpm-macros
-Requires:       polkit util-linux parted dosfstools exfatprogs ntfsprogs e2fsprogs udftools
+Requires:       udisks2 polkit util-linux parted dosfstools exfatprogs ntfsprogs e2fsprogs udftools
 Requires:       qemu-img libnbd
 Requires:       libxkbcommon-x11 libXcursor libX11-xcb libXi
 Requires:       wayland-libs libglvnd-glx libglvnd-egl
@@ -54,6 +54,10 @@ done
 %{_datadir}/icons/hicolor/*/apps/io.github.nitrodiesel.rufus-linux.png
 
 %changelog
+* Fri Oct 02 2026 Rufus Linux contributors - 0.1.6-1
+- Write and format through udisks2 with nothing extra installed
+- Create Windows installer media with UEFI:NTFS and BIOS boot
+
 * Thu Oct 01 2026 Rufus Linux contributors - 0.1.5-1
 - Propose the ISO volume name as the USB label and fit labels to the filesystem
 

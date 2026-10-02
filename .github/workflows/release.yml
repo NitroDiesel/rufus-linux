@@ -20,7 +20,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_VERSION: 0.1.5
+  PACKAGE_VERSION: 0.1.6
 
 jobs:
   debian:
@@ -153,7 +153,7 @@ jobs:
             archlinux:base-devel \
             bash -euxo pipefail -c '
               pacman -Syu --noconfirm \
-                rust cargo polkit util-linux parted dosfstools exfatprogs \
+                rust cargo udisks2 polkit util-linux parted dosfstools exfatprogs \
                 ntfsprogs e2fsprogs udftools qemu-img libnbd \
                 fontconfig freetype2 libxkbcommon libxkbcommon-x11 \
                 libxcursor libxi libglvnd wayland libx11 libxcb
@@ -368,7 +368,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$tag" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Rufus Linux $version" \
+              --title "v$version" \
               --notes-file /tmp/release-notes.md \
               --prerelease=false \
               --latest
@@ -381,7 +381,7 @@ jobs:
             gh release create "$tag" dist/* \
               --repo "$GITHUB_REPOSITORY" \
               "${tag_args[@]}" \
-              --title "Rufus Linux $version" \
+              --title "v$version" \
               --notes-file /tmp/release-notes.md \
               --latest
           fi

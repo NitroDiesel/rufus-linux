@@ -1,3 +1,10 @@
+rufus-linux (0.1.6-1) unstable; urgency=medium
+
+  * Write and format through udisks2 with nothing extra installed.
+  * Create Windows installer media with UEFI:NTFS and BIOS boot.
+
+ -- Rufus Linux contributors <rufus-linux@users.noreply.github.com>  Fri, 02 Oct 2026 00:00:00 +0800
+
 rufus-linux (0.1.5-1) unstable; urgency=medium
 
   * Propose the ISO volume name as the USB label and fit labels to the filesystem.

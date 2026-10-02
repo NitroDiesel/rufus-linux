@@ -1,5 +1,6 @@
-//! Privileged operation engine. The binary is a thin CLI around this library
-//! so unit tests can exercise validation and dry-run without root.
+//! Disk operation engines. The root helper binary is a thin CLI around
+//! [`execute`]; [`execute_with_udisks`] runs the same operations as the
+//! desktop user through the system udisks2 daemon.
 
 use std::ffi::{CStr, CString};
 use std::fs::File;
@@ -29,7 +30,12 @@ pub const HELPER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DECODER_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
 mod source_snapshot;
+mod udisks;
+mod udisks_engine;
 mod virtual_disk;
+mod windows_media;
+
+pub use udisks_engine::{execute_with_udisks, udisks_readiness, validate_udisks_request};
 
 #[derive(Debug, Error)]
 pub enum HelperError {
