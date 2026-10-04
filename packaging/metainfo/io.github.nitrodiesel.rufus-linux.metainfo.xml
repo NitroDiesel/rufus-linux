@@ -23,6 +23,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.7" date="2026-10-04">
+      <description>
+        <p>Offers the Super Floppy Disk partition scheme only for
+        non-bootable formats, under its Rufus name.</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-10-02">
       <description>
         <p>Creates Windows installer USB drives from Windows ISOs, with the

@@ -42,6 +42,13 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
 
+## Changes in 0.1.7
+
+The partition scheme list follows upstream Rufus: **Super Floppy Disk** (the
+filesystem on the whole device, no partition table) is offered only when Boot
+selection is "Non bootable", under upstream's name. Leaving "Non bootable"
+with it selected returns to GPT, the startup default.
+
 ## Changes in 0.1.6
 
 Writing and formatting run through the system udisks2 daemon as the desktop

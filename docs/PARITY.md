@@ -23,7 +23,7 @@ remains the authority on what a release enables.
 | Image option: Standard Windows installation | done | 0.1.6. |
 | Image option: Windows To Go | planned | Needs wimlib apply, BCD, and offline registry. |
 | Persistent partition size (Linux live) | planned | Slider exists; capability stays blocked. |
-| Partition scheme MBR / GPT / super floppy | done | |
+| Partition scheme MBR / GPT / super floppy | done | Super Floppy Disk is offered for non-bootable formats only, as upstream (0.1.7). |
 | Target system BIOS / UEFI / BIOS or UEFI | partial | Honored for Windows media (0.1.6): UEFI:NTFS for UEFI, Windows 7 MBR and boot record for BIOS. Follows the scheme like upstream. |
 | Add fixes for old BIOSes (extra partition, alignment) | planned | |
 | Use Rufus MBR with BIOS ID | planned | |

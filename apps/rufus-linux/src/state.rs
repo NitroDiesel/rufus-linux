@@ -20,6 +20,8 @@ use rufus_linux_platform::{list_block_devices, probe_capabilities};
 use crate::helper_client::{detect_backend, Backend};
 
 pub const DEFAULT_VOLUME_LABEL: &str = "RUFUS";
+/// Upstream's name for a whole-device filesystem without a partition table.
+pub const SUPER_FLOPPY_LABEL: &str = "Super Floppy Disk";
 /// Largest file FAT32 can store.
 const FAT32_MAX_FILE: u64 = 4 * 1024 * 1024 * 1024 - 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -521,6 +523,30 @@ impl AppState {
         None
     }
 
+    /// Partition schemes offered for the current boot selection. As upstream,
+    /// a super floppy disk is a plain format only: bootable media needs a
+    /// partition table.
+    pub fn partition_choices(&self) -> Vec<&'static str> {
+        let mut choices = vec!["MBR", "GPT"];
+        if self.boot_selection == BootSelection::NonBootable {
+            choices.push(SUPER_FLOPPY_LABEL);
+        }
+        choices
+    }
+
+    pub fn select_boot(&mut self, selection: BootSelection) {
+        self.boot_selection = selection;
+        if !self
+            .partition_choices()
+            .contains(&self.partition_scheme_label.as_str())
+        {
+            // Return to the startup default rather than an unexpected scheme.
+            self.select_partition_scheme("GPT");
+        } else {
+            self.recompute();
+        }
+    }
+
     /// Keep the target system consistent with the scheme, as upstream does.
     pub fn select_partition_scheme(&mut self, label: &str) {
         self.partition_scheme_label = label.to_owned();
@@ -600,7 +626,7 @@ impl AppState {
     fn parse_scheme(&self) -> PartitionScheme {
         match self.partition_scheme_label.as_str() {
             "MBR" => PartitionScheme::Mbr,
-            "Super floppy (disk image)" => PartitionScheme::SuperFloppy,
+            SUPER_FLOPPY_LABEL => PartitionScheme::SuperFloppy,
             _ => PartitionScheme::Gpt,
         }
     }
@@ -1261,5 +1287,29 @@ mod tests {
             .windows_media_unavailable_reason()
             .expect("Linux file-copy is not available")
             .contains("ISOHybrid"));
+    }
+
+    #[test]
+    fn super_floppy_is_offered_for_plain_formats_only() {
+        let mut st = AppState::new();
+        assert!(!st.partition_choices().contains(&SUPER_FLOPPY_LABEL));
+
+        st.select_boot(BootSelection::NonBootable);
+        assert_eq!(st.partition_choices(), ["MBR", "GPT", SUPER_FLOPPY_LABEL]);
+        st.select_partition_scheme(SUPER_FLOPPY_LABEL);
+        assert_eq!(st.parse_scheme(), PartitionScheme::SuperFloppy);
+
+        st.select_boot(BootSelection::DiskOrIso);
+        assert_eq!(st.partition_scheme_label, "GPT");
+        assert_eq!(st.target_system_label, "UEFI (non CSM)");
+        assert!(!st.partition_choices().contains(&SUPER_FLOPPY_LABEL));
+
+        st.select_boot(BootSelection::NonBootable);
+        st.select_partition_scheme("MBR");
+        st.select_boot(BootSelection::DiskOrIso);
+        assert_eq!(
+            st.partition_scheme_label, "MBR",
+            "a still-offered scheme is kept"
+        );
     }
 }
