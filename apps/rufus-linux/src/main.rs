@@ -91,7 +91,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "FreeDOS",
         "Windows To Go",
     ]));
-    ui.set_partition_choices(string_model(&["MBR", "GPT", "Super floppy (disk image)"]));
     ui.set_target_choices(string_model(&[
         "BIOS or UEFI",
         "UEFI (non CSM)",
@@ -275,8 +274,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.on_boot_selected(move |value| {
             if let Some(ui) = ui_weak.upgrade() {
                 let mut st = state.borrow_mut();
-                st.boot_selection = BootSelection::from_label(&value);
-                st.recompute();
+                st.select_boot(BootSelection::from_label(&value));
                 apply_state_to_ui(&ui, &st);
             }
         });
@@ -702,6 +700,7 @@ fn refresh_devices_ui(ui: &AppWindow, state: &mut AppState) {
 
 fn apply_state_to_ui(ui: &AppWindow, state: &AppState) {
     refresh_filesystems(ui, state);
+    ui.set_partition_choices(string_model(&state.partition_choices()));
     if let Some(dev) = state.selected() {
         ui.set_device_name(dev.display_name.clone().into());
         ui.set_device_path(dev.node.display().to_string().into());

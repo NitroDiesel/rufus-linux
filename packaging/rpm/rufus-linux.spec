@@ -1,5 +1,5 @@
 Name:           rufus-linux
-Version:        0.1.6
+Version:        0.1.7
 Release:        1%{?dist}
 Summary:        Format and create bootable USB drives
 License:        GPL-3.0-or-later
@@ -54,6 +54,9 @@ done
 %{_datadir}/icons/hicolor/*/apps/io.github.nitrodiesel.rufus-linux.png
 
 %changelog
+* Sun Oct 04 2026 Rufus Linux contributors - 0.1.7-1
+- Offer Super Floppy Disk for non-bootable formats only, as Rufus does
+
 * Fri Oct 02 2026 Rufus Linux contributors - 0.1.6-1
 - Write and format through udisks2 with nothing extra installed
 - Create Windows installer media with UEFI:NTFS and BIOS boot
