@@ -6,9 +6,21 @@ Rufus Linux is an **independent, community-built Linux port inspired by Rufus**.
 >
 > Writing or formatting a device permanently destroys data on that device. The application deliberately hides system disks and most USB hard disks by default, revalidates a device immediately before writing, and requires an explicit confirmation that names the target.
 
+<p align="center">
+  <img src="docs/images/rufus-linux-light.png" width="420" alt="Rufus Linux in the light theme, ready to write a Windows 11 ISO to a USB drive">
+  &nbsp;
+  <img src="docs/images/rufus-linux-dark.png" width="420" alt="Rufus Linux in the dark theme, copying Windows installer files with size, speed, and time left">
+</p>
+
 ## Project status
 
-Version 0.1 is the initial stable release of the Linux-native implementation, not a drop-in rebuild of the Windows executable. Its production path is deliberately narrow: safe formatting plus raw, compressed-raw, and ISOHybrid writing with verification. Inputs that would need an incomplete bootloader or Windows deployment workflow are recognized and blocked with a direct reason. See the [capability matrix](docs/CAPABILITIES.md).
+Rufus Linux is a Linux-native implementation, not a rebuild of the Windows executable. It creates:
+
+- Windows 10/11 installer drives from Windows ISOs. Files over 4 GB are supported through NTFS and the Secure Boot signed UEFI:NTFS loader, with BIOS boot records on MBR.
+- Bootable drives from ISOHybrid Linux ISOs, raw and compressed disk images, and VHD/VHDX.
+- Formatted drives in FAT, FAT32, exFAT, NTFS, UDF, or ext2/3/4, with optional verification and bad-block checks.
+
+Options that still need an unfinished workflow are recognized and blocked with a direct reason. These include non-hybrid Linux ISOs, FreeDOS, Windows To Go, and persistence. [PARITY.md](docs/PARITY.md) tracks every upstream Rufus feature, and the [capability matrix](docs/CAPABILITIES.md) is the authority for each release.
 
 The goal is output compatibility where Linux has a safe, maintained implementation. It is not to emulate Windows internals with unsafe shortcuts.
 
@@ -16,7 +28,7 @@ The goal is output compatibility where Linux has a safe, maintained implementati
 
 - Native Slint desktop interface on Wayland and X11, with light and dark themes.
 - Automatic sysfs-backed device discovery with mount and device-holder safety checks.
-- A small, polkit-authorized privileged helper for raw-device operations.
+- Plug and play: writes go through the system udisks2 service, so nothing extra has to be installed. A small polkit-authorized helper is the fallback.
 - MBR/GPT partitioning, raw image writing, verification, and common Linux/portable filesystems.
 - ISO/ISOHybrid and compressed-image analysis with clear compatibility and safety feedback.
 - Logged, cancellable operations with a final flush before a device is reported ready.
@@ -87,10 +99,10 @@ chmod +x ./rufus-linux-*-x86_64.AppImage
 ```
 
 If FUSE is unavailable, launch it with `--appimage-extract-and-run`. The
-AppImage supports device discovery, image inspection, option selection,
-checksums, and logs without installation. It deliberately contains no
-privileged code; writing and formatting become available when a matching
-native package has installed the root-owned helper and polkit policy.
+AppImage writes and formats through the udisks2 service that desktop
+distributions already run, so it needs no installation and contains no
+privileged code. When udisks2 is absent, a native package's helper is used
+instead.
 
 The native packages install the desktop application, privileged helper,
 polkit policy, desktop metadata, and required runtime dependencies. Each
