@@ -12,6 +12,8 @@ use sha2::{Sha256, Sha512};
 use thiserror::Error;
 
 pub mod isofs;
+pub mod wim;
+pub mod windows;
 
 #[derive(Debug, Error)]
 pub enum ImageError {
@@ -48,6 +50,8 @@ pub struct ImageReport {
     pub linux_live: bool,
     pub persistence_supported: bool,
     pub largest_file_bytes: Option<u64>,
+    /// Version, editions, and setup details of Windows installer ISOs.
+    pub windows: Option<windows::WindowsImage>,
     pub notes: Vec<String>,
 }
 
@@ -111,6 +115,7 @@ pub fn analyze_file(path: &Path, file: &mut File) -> Result<ImageReport, ImageEr
         linux_live: false,
         persistence_supported: false,
         largest_file_bytes: None,
+        windows: None,
         notes: Vec::new(),
     };
 
@@ -192,6 +197,9 @@ pub fn analyze_file(path: &Path, file: &mut File) -> Result<ImageReport, ImageEr
             report.label_hint = read_iso_label(file)?;
             if let Some(listing) = isofs::list(file)? {
                 apply_listing(&mut report, &listing);
+                if report.windows_installer {
+                    report.windows = windows::inspect(file, &listing);
+                }
             } else {
                 report
                     .notes

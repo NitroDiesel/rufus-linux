@@ -62,6 +62,13 @@ License versions above are orientation only. The installed package's license met
 - `crates/rufus-helper/assets/ms-sys/`: Windows 7 MBR and NTFS/FAT32 boot
   record byte arrays from upstream Rufus `src/ms-sys/inc/` (ms-sys,
   GPL-2.0-or-later), converted unchanged; see `PROVENANCE.md` there.
+- `crates/rufus-helper/assets/setup/`: upstream Rufus's signed Windows 11
+  Setup wrapper (`res/setup/setup_x64.exe`, `setup_arm64.exe`) and its source
+  `setup.c` (GPL-3.0-or-later), unchanged. Digests are in `PROVENANCE.md`
+  there; a unit test pins them.
+- `apps/rufus-linux/assets/windows-zones.txt`: IANA to Windows time zone
+  names from Unicode CLDR `windowsZones.xml` (Unicode License v3), with
+  aliases from the IANA tz database's links (public domain).
 
 ## Boot assets policy
 

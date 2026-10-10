@@ -49,9 +49,9 @@ remains the authority on what a release enables.
 |---|---|---|
 | Windows installer from ISO (NTFS/exFAT + UEFI:NTFS, or FAT32) | done | 0.1.6, with BIOS boot records on MBR. |
 | Split install.wim > 4 GB on FAT32 | planned | |
-| Windows User Experience dialog: bypass TPM/Secure Boot/RAM, no online account, local account, regional options, no data collection, no BitLocker, S-Mode | planned | Generated `autounattend.xml`. |
-| Silent erase-and-install option | planned | Requires the three acknowledgements in SAFETY.md. |
-| Windows CA 2023 signed bootloaders | planned | |
+| Windows User Experience dialog: bypass TPM/Secure Boot/RAM, no online account, local account, regional options, no data collection, no BitLocker, QoL improvements, SkuSiPolicy.p7b, S-Mode | done | 1.0.0. Shown on Start for Windows 10/11 media with upstream's options per build; choices persist. The answer file is `autounattend.xml` at the media root with upstream's `RunSynchronous` bypass (upstream's own fallback), since Rufus Linux does not rewrite `boot.wim`. Includes upstream's empty `appraiserres.dll` and signed Setup wrapper for in-place upgrades. S-Mode appears while Advanced is open, like upstream's expert mode. |
+| Silent erase-and-install option | done | 1.0.0, with the edition choice, the three acknowledgements, and the ` (SILENT)` label. |
+| Windows CA 2023 signed bootloaders | planned | Next: needs extracting `EFI_EX`/`Fonts_EX` from the LZX-compressed `boot.wim`. |
 | Windows To Go | planned | |
 | VHD/VHDX/FFU write | partial | VHD/VHDX done; FFU blocked. |
 
@@ -66,7 +66,7 @@ remains the authority on what a release enables.
 | Drive capture to VHD/VHDX/ISO/FFU | planned | Needs a user-opened output descriptor. |
 | Language selection (i18n) | planned | `rufus-i18n` groundwork only. |
 | Update check | planned | Native packages update through the distribution. |
-| Settings persistence and expert/cheat-mode shortcuts | partial | Display units persist (0.1.8); other settings and shortcuts planned. |
+| Settings persistence and expert/cheat-mode shortcuts | partial | Display units (0.1.8) and Windows User Experience choices (1.0.0) persist; other settings and shortcuts planned. |
 | Drag-and-drop image selection | planned | |
 
 ## Linux additions
@@ -79,7 +79,8 @@ remains the authority on what a release enables.
 
 1. ~~Windows installer media with UEFI:NTFS and BIOS boot records~~ (0.1.6);
    FAT32 with split WIM remains.
-2. Windows User Experience options through `autounattend.xml`.
+2. ~~Windows User Experience options through `autounattend.xml`~~ (1.0.0);
+   the Windows CA 2023 bootloader option remains.
 3. ~~Plug-and-play AppImage through udisks2~~ (0.1.6).
 4. Non-hybrid Linux ISO file-copy with Syslinux/GRUB, then persistence.
 5. FreeDOS, bad-block passes, extended label/icon, old-BIOS fixes, Rufus MBR.

@@ -23,6 +23,13 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.0" date="2026-10-10">
+      <description>
+        <p>Asks how to customize Windows 10 and 11 installations, as Rufus
+        does: skip the TPM, Secure Boot, and RAM checks, skip the online
+        account, create a local account, and more.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-10-10">
       <description>
         <p>Shows progress with size, speed, and time left, in size and speed

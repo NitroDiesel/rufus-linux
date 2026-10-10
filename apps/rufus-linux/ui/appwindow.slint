@@ -6,6 +6,8 @@ import {
     Card, Callout, CheckRow, SelectField, LabeledComboBox, LabeledLineEdit,
     WriteTrack, HelperLabel, FieldLabel
 } from "components.slint";
+import { WueRow, WueDialog, SilentInstallDialog } from "wue.slint";
+export { WueRow }
 
 export component AppWindow inherits Window {
     title: "Rufus Linux";
@@ -36,7 +38,8 @@ export component AppWindow inherits Window {
     in-out property <string> image-summary: "No image selected";
     in-out property <string> image-notes: "";
     in-out property <bool> image-inspecting: false;
-    property <bool> modal-open: root.show-confirm || root.show-log || root.show-about;
+    property <bool> modal-open: root.show-confirm || root.show-log || root.show-about
+        || root.show-wue || root.show-silent-warning;
     property <bool> can-configure: !root.is-busy && !root.image-inspecting && !root.modal-open;
     property <bool> has-device: root.device-name != "No device selected";
 
@@ -78,12 +81,19 @@ export component AppWindow inherits Window {
     in-out property <bool> show-confirm: false;
     in-out property <string> confirm-title: "Write image";
     in-out property <string> confirm-body: "";
+    in-out property <bool> show-wue: false;
+    in-out property <[WueRow]> wue-rows;
+    in-out property <int> wue-slot-count: 2;
+    in-out property <string> wue-username: "";
+    in-out property <[string]> wue-editions;
+    in-out property <string> wue-edition: "";
+    in-out property <bool> show-silent-warning: false;
     in-out property <bool> show-log: false;
     in-out property <string> log-text: "";
     in-out property <bool> show-about: false;
     in-out property <bool> show-advanced: false;
     in-out property <string> capability-hint: "";
-    in-out property <string> app-version: "0.1.8";
+    in-out property <string> app-version: "1.0.0";
 
     // —— Callbacks ——
     callback refresh-devices();
@@ -100,6 +110,11 @@ export component AppWindow inherits Window {
     callback cancel-clicked();
     callback confirm-accepted();
     callback confirm-rejected();
+    callback wue-toggled(int, bool);
+    callback wue-accepted();
+    callback wue-rejected();
+    callback silent-accepted();
+    callback silent-rejected();
     callback toggle-log();
     callback toggle-about();
     callback toggle-advanced();
@@ -461,6 +476,23 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    // Windows User Experience overlay
+    if root.show-wue && !root.show-silent-warning: WueDialog {
+        rows: root.wue-rows;
+        slot-count: root.wue-slot-count;
+        username <=> root.wue-username;
+        editions: root.wue-editions;
+        edition <=> root.wue-edition;
+        toggled(index, on) => { root.wue-toggled(index, on); }
+        accepted => { root.wue-accepted(); }
+        rejected => { root.wue-rejected(); }
+    }
+
+    if root.show-silent-warning: SilentInstallDialog {
+        accepted => { root.silent-accepted(); }
+        rejected => { root.silent-rejected(); }
     }
 
     // Confirm overlay

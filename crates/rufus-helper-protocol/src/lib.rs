@@ -53,6 +53,107 @@ pub struct FormatSpec {
     pub quick_format: bool,
 }
 
+/// Longest local account name accepted, as upstream's `MAX_USERNAME_LENGTH`.
+pub const MAX_USERNAME_CHARS: usize = 128;
+/// Longest regional value; real ones are a few dozen characters.
+pub const MAX_REGIONAL_CHARS: usize = 96;
+
+/// The Windows User Experience dialog's choices. The helper turns them into
+/// an answer file, so only typed values cross the boundary, never XML.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WindowsCustomization {
+    /// Remove the 4 GB+ RAM, Secure Boot, and TPM 2.0 requirements.
+    pub bypass_requirements: bool,
+    /// Remove the requirement for an online Microsoft account.
+    pub no_online_account: bool,
+    /// Create a local account with this name and an empty password.
+    pub local_account: Option<String>,
+    /// Copy this computer's keyboard, locale, and time zone.
+    pub regional: Option<RegionalSettings>,
+    /// Answer "no" to the data collection questions.
+    pub no_data_collection: bool,
+    /// Disable BitLocker automatic device encryption.
+    pub disable_bitlocker: bool,
+    /// Don't force Copilot, OneDrive, Outlook, Fast Startup, and so on.
+    pub quality_of_life: bool,
+    /// Copy SkuSiPolicy.p7b to the ESP on first logon (KB5042562).
+    pub apply_skusipolicy: bool,
+    /// Erase the first disk and install this image index without asking.
+    pub silent_install_index: Option<u32>,
+    /// Restrict Windows to S Mode.
+    pub force_s_mode: bool,
+}
+
+/// Answer-file regional values, already in Windows' notation.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegionalSettings {
+    /// `InputLocale`, such as `0409:00000409` or `en-US`.
+    pub input_locale: String,
+    pub system_locale: String,
+    pub user_locale: String,
+    pub ui_language: String,
+    /// A Windows time zone name such as `W. Europe Standard Time`.
+    pub time_zone: Option<String>,
+}
+
+impl WindowsCustomization {
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        if let Some(name) = &self.local_account {
+            if name.trim().is_empty()
+                || name.chars().count() > MAX_USERNAME_CHARS
+                || name.chars().any(char::is_control)
+            {
+                return Err(ProtocolError::InvalidRequest(
+                    "invalid local account name".into(),
+                ));
+            }
+        }
+        if let Some(regional) = &self.regional {
+            let locale = |value: &str| {
+                !value.is_empty()
+                    && value.len() <= MAX_REGIONAL_CHARS
+                    && value
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | ':' | ';' | '_'))
+            };
+            let zone = |value: &str| {
+                !value.is_empty()
+                    && value.len() <= MAX_REGIONAL_CHARS
+                    && value.chars().all(|c| {
+                        c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '+' | '-' | '(' | ')')
+                    })
+            };
+            if ![
+                &regional.input_locale,
+                &regional.system_locale,
+                &regional.user_locale,
+                &regional.ui_language,
+            ]
+            .iter()
+            .all(|value| locale(value))
+                || regional
+                    .time_zone
+                    .as_deref()
+                    .is_some_and(|value| !zone(value))
+            {
+                return Err(ProtocolError::InvalidRequest(
+                    "invalid regional settings".into(),
+                ));
+            }
+        }
+        if self.silent_install_index == Some(0) {
+            return Err(ProtocolError::InvalidRequest(
+                "Windows image indexes start at 1".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum HelperOperation {
     /// Write an image (DD or ISO file-copy) after partitioning/formatting.
@@ -63,6 +164,9 @@ pub enum HelperOperation {
         verification: VerificationLevel,
         bad_blocks: bool,
         install_bootloader: Option<String>,
+        /// Windows User Experience choices for Windows installer media.
+        #[serde(default)]
+        windows_customization: Option<Box<WindowsCustomization>>,
     },
     /// Format only.
     FormatMedia {
@@ -103,11 +207,18 @@ impl HelperRequest {
             ));
         }
         match &self.operation {
-            HelperOperation::WriteMedia { source, .. } => {
+            HelperOperation::WriteMedia {
+                source,
+                windows_customization,
+                ..
+            } => {
                 if !source.path.is_absolute() {
                     return Err(ProtocolError::InvalidRequest(
                         "source path must be absolute".into(),
                     ));
+                }
+                if let Some(customization) = windows_customization {
+                    customization.validate()?;
                 }
             }
             HelperOperation::CaptureImage { output, .. } => {
@@ -271,6 +382,7 @@ mod tests {
                 verification: VerificationLevel::FullReadback,
                 bad_blocks: false,
                 install_bootloader: None,
+                windows_customization: None,
             },
             action_name: "Write image".into(),
         }
@@ -283,6 +395,55 @@ mod tests {
         let decoded: HelperRequest = decode_line(&bytes).expect("decode sample request");
         assert_eq!(req, decoded);
         assert!(decoded.validate().is_ok());
+    }
+
+    #[test]
+    fn windows_customization_round_trips_and_rejects_markup() {
+        let mut req = sample_request();
+        let customization = WindowsCustomization {
+            bypass_requirements: true,
+            local_account: Some("Ana María".into()),
+            regional: Some(RegionalSettings {
+                input_locale: "0409:00000409".into(),
+                system_locale: "en-PH".into(),
+                user_locale: "fil-PH".into(),
+                ui_language: "en-US".into(),
+                time_zone: Some("Singapore Standard Time".into()),
+            }),
+            silent_install_index: Some(6),
+            ..WindowsCustomization::default()
+        };
+        if let HelperOperation::WriteMedia {
+            windows_customization,
+            ..
+        } = &mut req.operation
+        {
+            *windows_customization = Some(Box::new(customization.clone()));
+        }
+        let decoded: HelperRequest =
+            decode_line(&encode_line(&req).expect("encode")).expect("decode");
+        assert_eq!(decoded, req);
+        assert!(decoded.validate().is_ok());
+
+        let mut bad = customization.clone();
+        bad.regional.as_mut().expect("regional").time_zone = Some("<x/>".into());
+        assert!(bad.validate().is_err());
+        let mut bad = customization.clone();
+        bad.regional.as_mut().expect("regional").user_locale = "en-US\"><x".into();
+        assert!(bad.validate().is_err());
+        let mut bad = customization;
+        bad.local_account = Some("a\nb".into());
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn requests_without_customization_still_decode() {
+        let mut json =
+            String::from_utf8(encode_line(&sample_request()).expect("encode")).expect("UTF-8");
+        json = json.replace(",\"windows_customization\":null", "");
+        assert!(!json.contains("windows_customization"));
+        let decoded: HelperRequest = decode_line(json.as_bytes()).expect("decode");
+        assert_eq!(decoded, sample_request());
     }
 
     #[test]

@@ -1,14 +1,17 @@
-//! Display preferences kept across launches in
+//! Preferences kept across launches in
 //! `$XDG_CONFIG_HOME/rufus-linux/settings.conf` as `key=value` lines.
 
 use std::path::PathBuf;
 
 use crate::units::{SizeUnit, SpeedUnit};
+use crate::wue::WueOption;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Settings {
     pub size_unit: SizeUnit,
     pub speed_unit: SpeedUnit,
+    /// Windows User Experience choices, like upstream's `WUEOptions`.
+    pub wue_options: Vec<WueOption>,
 }
 
 impl Default for Settings {
@@ -16,6 +19,7 @@ impl Default for Settings {
         Self {
             size_unit: SizeUnit::Auto,
             speed_unit: SpeedUnit::MBps,
+            wue_options: crate::wue::default_selection(),
         }
     }
 }
@@ -30,6 +34,10 @@ impl Settings {
 
     /// Best effort: an unwritable config directory only loses the preference.
     pub fn save(&self) {
+        // Unit tests must not touch the developer's own settings.
+        if cfg!(test) {
+            return;
+        }
         let Some(path) = path() else { return };
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -51,6 +59,12 @@ impl Settings {
                         settings.speed_unit = unit;
                     }
                 }
+                "wue_options" => {
+                    settings.wue_options = value
+                        .split(',')
+                        .filter_map(|key| WueOption::from_key(key.trim()))
+                        .collect();
+                }
                 _ => {}
             }
         }
@@ -58,10 +72,15 @@ impl Settings {
     }
 
     fn serialize(&self) -> String {
+        let wue: Vec<_> = crate::wue::remembered(&self.wue_options)
+            .into_iter()
+            .map(WueOption::key)
+            .collect();
         format!(
-            "size_unit={}\nspeed_unit={}\n",
+            "size_unit={}\nspeed_unit={}\nwue_options={}\n",
             self.size_unit.label(),
-            self.speed_unit.label()
+            self.speed_unit.label(),
+            wue.join(",")
         )
     }
 }
@@ -83,14 +102,21 @@ mod tests {
         let settings = Settings {
             size_unit: SizeUnit::Gb,
             speed_unit: SpeedUnit::Mbps,
+            wue_options: vec![WueOption::LocalAccount, WueOption::QualityOfLife],
         };
         assert_eq!(Settings::parse(&settings.serialize()), settings);
         assert_eq!(
             Settings::parse("speed_unit=furlongs\nfuture=1\nsize_unit = MB\n"),
             Settings {
                 size_unit: SizeUnit::Mb,
-                speed_unit: SpeedUnit::MBps,
+                ..Settings::default()
             }
+        );
+        // An empty list is a choice; silent install is never restored.
+        assert!(Settings::parse("wue_options=\n").wue_options.is_empty());
+        assert_eq!(
+            Settings::parse("wue_options=silent,regional,bogus\n").wue_options,
+            [WueOption::Regional]
         );
     }
 }

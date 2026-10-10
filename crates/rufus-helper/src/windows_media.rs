@@ -322,6 +322,10 @@ fn copy_entry(
     })
 }
 
+pub(crate) fn copied_bytes(copies: &[CopiedFile]) -> u64 {
+    copies.iter().map(|copy| copy.size).sum()
+}
+
 /// Read every copied file back and compare it with what was written.
 pub(crate) fn verify_copies(
     copies: &[CopiedFile],
@@ -369,6 +373,149 @@ pub(crate) fn write_uefi_ntfs_files(root: &Path) -> Result<(), HelperError> {
         output.write_all(bytes)?;
         output.sync_all()?;
     }
+    Ok(())
+}
+
+const SETUP_WRAPPER_X64: &[u8] = include_bytes!("../assets/setup/setup_x64.exe");
+const SETUP_WRAPPER_ARM64: &[u8] = include_bytes!("../assets/setup/setup_arm64.exe");
+const IMAGE_FILE_MACHINE_AMD64: u16 = 0x8664;
+const IMAGE_FILE_MACHINE_ARM64: u16 = 0xaa64;
+/// Windows 11 24H2, whose in-place upgrades need the Setup wrapper.
+const SETUP_WRAPPER_MIN_BUILD: u32 = 26000;
+
+/// A file Rufus adds to the media after the copy, verified like the rest.
+fn add_file(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+    copies: &mut Vec<CopiedFile>,
+) -> Result<(), HelperError> {
+    let path = destination(root, relative)?;
+    ensure_parent(&path, root)?;
+    let mut output = create_new(&path)
+        .map_err(|error| HelperError::Operation(format!("could not create {relative}: {error}")))?;
+    output.write_all(bytes)?;
+    output.sync_all()?;
+    copies.push(CopiedFile {
+        path,
+        size: bytes.len() as u64,
+        sha256: Sha256::digest(bytes).into(),
+    });
+    Ok(())
+}
+
+/// The copied file at `relative`, matched without regard to case as the
+/// image's own file systems do.
+fn find_copy<'a>(
+    root: &Path,
+    relative: &str,
+    copies: &'a mut [CopiedFile],
+) -> Option<&'a mut CopiedFile> {
+    let wanted = root.join(relative);
+    copies.iter_mut().find(|copy| {
+        copy.path
+            .to_str()
+            .zip(wanted.to_str())
+            .is_some_and(|(have, want)| have.eq_ignore_ascii_case(want))
+    })
+}
+
+/// Rename a copied file, keeping its verification record.
+fn rename_copy(
+    root: &Path,
+    relative: &str,
+    new_name: &str,
+    copies: &mut [CopiedFile],
+) -> Result<Option<PathBuf>, HelperError> {
+    let Some(copy) = find_copy(root, relative, copies) else {
+        return Ok(None);
+    };
+    let original = copy.path.clone();
+    let renamed = original.with_file_name(new_name);
+    if std::fs::symlink_metadata(&renamed).is_ok() {
+        return Err(HelperError::Operation(format!(
+            "{} already exists on the media",
+            renamed.display()
+        )));
+    }
+    std::fs::rename(&original, &renamed)?;
+    copy.path = renamed;
+    Ok(Some(original))
+}
+
+fn pe_machine(bytes: &[u8]) -> Option<u16> {
+    let at = u32::from_le_bytes(bytes.get(0x3c..0x40)?.try_into().ok()?) as usize;
+    if bytes.get(at..at + 4)? != b"PE\0\0" {
+        return None;
+    }
+    Some(u16::from_le_bytes(
+        bytes.get(at + 4..at + 6)?.try_into().ok()?,
+    ))
+}
+
+/// Upstream's `ApplyWindowsCustomization` for installer media: the answer
+/// file, and for the hardware bypass, an empty `appraiserres.dll` and the
+/// Setup wrapper so in-place upgrades skip the checks too.
+pub(crate) fn apply_customization(
+    root: &Path,
+    answer: &crate::unattend::AnswerFile,
+    bypass_requirements: bool,
+    build: u32,
+    copies: &mut Vec<CopiedFile>,
+    log: &mut dyn FnMut(String),
+) -> Result<(), HelperError> {
+    if bypass_requirements {
+        // Setup extracts its own appraiserres.dll when the file is missing,
+        // so it must be present and empty.
+        if let Some(original) =
+            rename_copy(root, "sources/appraiserres.dll", "appraiserres.bak", copies)?
+        {
+            log("Renamed 'sources/appraiserres.dll' → 'sources/appraiserres.bak'".into());
+            let relative = original
+                .strip_prefix(root)
+                .map_err(|_| HelperError::Operation("file is outside the target volume".into()))?
+                .to_string_lossy()
+                .into_owned();
+            add_file(root, &relative, &[], copies)?;
+            log("Created 'sources/appraiserres.dll' placeholder".into());
+        }
+        if build >= SETUP_WRAPPER_MIN_BUILD {
+            install_setup_wrapper(root, copies, log)?;
+        }
+    }
+    add_file(root, answer.path, answer.xml.as_bytes(), copies)?;
+    log(format!("Created '{}'", answer.path));
+    Ok(())
+}
+
+fn install_setup_wrapper(
+    root: &Path,
+    copies: &mut Vec<CopiedFile>,
+    log: &mut dyn FnMut(String),
+) -> Result<(), HelperError> {
+    let Some(setup) = find_copy(root, "setup.exe", copies) else {
+        return Ok(());
+    };
+    let mut file = File::open(&setup.path)?;
+    let mut head = vec![0u8; 4096];
+    let count = file.read(&mut head)?;
+    let wrapper = match pe_machine(&head[..count]) {
+        Some(IMAGE_FILE_MACHINE_AMD64) => SETUP_WRAPPER_X64,
+        Some(IMAGE_FILE_MACHINE_ARM64) => SETUP_WRAPPER_ARM64,
+        other => {
+            log(format!(
+                "WARNING: Unsupported arch {:#x} -- in-place upgrade wrapper will not be added",
+                other.unwrap_or(0)
+            ));
+            return Ok(());
+        }
+    };
+    if rename_copy(root, "setup.exe", "setup.dll", copies)?.is_none() {
+        return Ok(());
+    }
+    log("Renamed 'setup.exe' → 'setup.dll'".into());
+    add_file(root, "setup.exe", wrapper, copies)?;
+    log("Created 'setup.exe' bypass wrapper (from embedded)".into());
     Ok(())
 }
 
@@ -605,6 +752,143 @@ mod tests {
 
         // A second copy never overwrites existing files.
         assert!(copy_listing(&mut iso, &listing, &root, &cancel, &mut |_, _| {}).is_err());
+    }
+
+    fn pe_stub(machine: u16) -> Vec<u8> {
+        let mut bytes = vec![0u8; 0x200];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        bytes[0x84..0x86].copy_from_slice(&machine.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn customization_adds_the_answer_file_and_upgrade_bypasses_and_stays_verifiable() {
+        let dir = TempDir::new("customize");
+        let image_path = dir.0.join("windows.iso");
+        std::fs::write(
+            &image_path,
+            fixture::udf(vec![
+                Node::Bytes("setup.exe", pe_stub(IMAGE_FILE_MACHINE_AMD64)),
+                Node::Dir(
+                    "sources",
+                    vec![
+                        Node::File("appraiserres.dll", 3000),
+                        Node::File("install.wim", 5000),
+                    ],
+                ),
+            ]),
+        )
+        .expect("write fixture");
+        let mut iso = File::open(&image_path).expect("open fixture");
+        let listing = isofs::list(&mut iso).expect("list").expect("UDF listing");
+        let root = dir.0.join("volume");
+        std::fs::create_dir(&root).expect("volume root");
+        let cancel = CancellationToken::new();
+        let mut copies =
+            copy_listing(&mut iso, &listing, &root, &cancel, &mut |_, _| {}).expect("copy");
+
+        let options = rufus_helper_protocol::WindowsCustomization {
+            bypass_requirements: true,
+            no_online_account: true,
+            ..Default::default()
+        };
+        let answer = crate::unattend::answer_file(
+            &options,
+            rufus_image::windows::WindowsArch::Amd64,
+            "en-US",
+        );
+        let mut log = Vec::new();
+        apply_customization(&root, &answer, true, 26100, &mut copies, &mut |line| {
+            log.push(line)
+        })
+        .expect("customize");
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("autounattend.xml")).expect("answer file"),
+            answer.xml
+        );
+        assert_eq!(
+            std::fs::metadata(root.join("sources/appraiserres.dll"))
+                .expect("placeholder")
+                .len(),
+            0
+        );
+        assert_eq!(
+            std::fs::metadata(root.join("sources/appraiserres.bak"))
+                .expect("backup")
+                .len(),
+            3000
+        );
+        assert_eq!(
+            std::fs::read(root.join("setup.dll")).expect("original setup"),
+            pe_stub(IMAGE_FILE_MACHINE_AMD64)
+        );
+        assert_eq!(
+            std::fs::read(root.join("setup.exe")).expect("wrapper"),
+            SETUP_WRAPPER_X64
+        );
+        assert!(log.iter().any(|line| line.contains("bypass wrapper")));
+        verify_copies(&copies, &root, &root, &cancel, &mut |_| {}).expect("verify");
+        assert_eq!(
+            copied_bytes(&copies),
+            listing.total_file_bytes() + SETUP_WRAPPER_X64.len() as u64 + answer.xml.len() as u64
+        );
+    }
+
+    #[test]
+    fn older_builds_and_unknown_setup_architectures_keep_the_original_setup() {
+        let dir = TempDir::new("no-wrapper");
+        let root = dir.0.clone();
+        let setup = pe_stub(0x014c);
+        std::fs::write(root.join("setup.exe"), &setup).expect("setup");
+        let mut copies = vec![CopiedFile {
+            path: root.join("setup.exe"),
+            size: setup.len() as u64,
+            sha256: Sha256::digest(&setup).into(),
+        }];
+        let answer = crate::unattend::answer_file(
+            &rufus_helper_protocol::WindowsCustomization {
+                no_data_collection: true,
+                ..Default::default()
+            },
+            rufus_image::windows::WindowsArch::X86,
+            "en-US",
+        );
+        let mut log = Vec::new();
+        apply_customization(&root, &answer, true, 26100, &mut copies, &mut |line| {
+            log.push(line)
+        })
+        .expect("customize");
+        assert_eq!(std::fs::read(root.join("setup.exe")).expect("setup"), setup);
+        assert!(log
+            .iter()
+            .any(|line| line.contains("Unsupported arch 0x14c")));
+        assert!(root.join("sources/$OEM$/$$/Panther/unattend.xml").is_file());
+        let cancel = CancellationToken::new();
+        verify_copies(&copies, &root, &root, &cancel, &mut |_| {}).expect("verify");
+    }
+
+    #[test]
+    fn setup_wrapper_matches_the_pinned_upstream_files() {
+        let digest = |bytes: &[u8]| crate::hex_lower(&Sha256::digest(bytes));
+        assert_eq!(
+            digest(SETUP_WRAPPER_X64),
+            "11df838dc69378187e1e1aaf32d34384157642d07096c6e49c1d0e7375634544"
+        );
+        assert_eq!(
+            digest(SETUP_WRAPPER_ARM64),
+            "14bd07f559513890a0f6565df3927392b4fe6b8e6fc3f5e832e9d69c8b7bb7eb"
+        );
+        assert_eq!(
+            pe_machine(SETUP_WRAPPER_X64),
+            Some(IMAGE_FILE_MACHINE_AMD64)
+        );
+        assert_eq!(
+            pe_machine(SETUP_WRAPPER_ARM64),
+            Some(IMAGE_FILE_MACHINE_ARM64)
+        );
     }
 
     #[test]

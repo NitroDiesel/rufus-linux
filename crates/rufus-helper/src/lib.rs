@@ -32,6 +32,7 @@ const DECODER_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 mod source_snapshot;
 mod udisks;
 mod udisks_engine;
+mod unattend;
 mod virtual_disk;
 mod windows_media;
 
@@ -473,9 +474,10 @@ pub fn validate_request(request: &HelperRequest) -> Result<(), HelperError> {
             source,
             format,
             install_bootloader,
+            windows_customization,
             ..
         } => {
-            if *write_mode != WriteMode::DdImage {
+            if *write_mode != WriteMode::DdImage || windows_customization.is_some() {
                 return Err(HelperError::Operation(
                     "only raw/ISOHybrid disk-image writing is enabled in this release".into(),
                 ));
@@ -2283,6 +2285,7 @@ mod tests {
             verification: VerificationLevel::FullReadback,
             bad_blocks: false,
             install_bootloader: None,
+            windows_customization: None,
         };
         let error = validate_request(&request).expect_err("file-copy mode must be rejected");
         let _ = std::fs::remove_file(source_path);
@@ -2313,6 +2316,7 @@ mod tests {
             verification: VerificationLevel::FullReadback,
             bad_blocks: false,
             install_bootloader: None,
+            windows_customization: None,
         };
         validate_request(&request).expect("validation must not open the source path");
         let providers = virtual_disk::require_tools();

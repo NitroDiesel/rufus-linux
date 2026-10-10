@@ -1,5 +1,5 @@
 Name:           rufus-linux
-Version:        0.1.8
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Format and create bootable USB drives
 License:        GPL-3.0-or-later
@@ -54,6 +54,9 @@ done
 %{_datadir}/icons/hicolor/*/apps/io.github.nitrodiesel.rufus-linux.png
 
 %changelog
+* Sat Oct 10 2026 Rufus Linux contributors - 1.0.0-1
+- Offer the Windows User Experience options for Windows 10 and 11 media
+
 * Sat Oct 10 2026 Rufus Linux contributors - 0.1.8-1
 - Show progress with size, speed, and time left in selectable units
 
