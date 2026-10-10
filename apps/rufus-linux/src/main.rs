@@ -4,7 +4,9 @@ mod confirmation;
 mod helper_client;
 mod hotplug;
 mod image_inspection;
+mod settings;
 mod state;
+mod units;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -107,6 +109,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "32 KB",
         "64 KB",
     ]));
+    ui.set_size_unit_choices(ModelRc::new(VecModel::from(
+        units::SizeUnit::ALL
+            .iter()
+            .map(|unit| SharedString::from(unit.label()))
+            .collect::<Vec<_>>(),
+    )));
+    ui.set_speed_unit_choices(ModelRc::new(VecModel::from(
+        units::SpeedUnit::ALL
+            .iter()
+            .map(|unit| SharedString::from(unit.label()))
+            .collect::<Vec<_>>(),
+    )));
     ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     let desktop_theme = std::env::var("GTK_THEME").unwrap_or_default();
     ui.set_dark_mode(
@@ -366,6 +380,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.on_cluster_selected(move |v| {
             if let Some(ui) = ui_weak.upgrade() {
                 state.borrow_mut().cluster_label = v.to_string();
+                apply_state_to_ui(&ui, &state.borrow());
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_size_unit_selected(move |v| {
+            if let Some(ui) = ui_weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .set_display_units(units::SizeUnit::from_label(&v), None);
+                apply_state_to_ui(&ui, &state.borrow());
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_speed_unit_selected(move |v| {
+            if let Some(ui) = ui_weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .set_display_units(None, units::SpeedUnit::from_label(&v));
                 apply_state_to_ui(&ui, &state.borrow());
             }
         });
@@ -747,6 +785,8 @@ fn apply_state_to_ui(ui: &AppWindow, state: &AppState) {
     ui.set_status_operation(state.status_operation.clone().into());
     ui.set_status_progress(state.status_progress as f32);
     ui.set_status_telemetry(state.status_telemetry.clone().into());
+    ui.set_size_unit(state.settings.size_unit.label().into());
+    ui.set_speed_unit(state.settings.speed_unit.label().into());
     ui.set_status_tone(state.status_tone.clone().into());
     ui.set_status_active(state.status_active);
     ui.set_status_line(state.status_line.clone().into());

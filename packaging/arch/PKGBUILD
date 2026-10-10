@@ -1,6 +1,6 @@
 # Maintainer: Rufus Linux contributors
 pkgname=rufus-linux
-pkgver=0.1.7
+pkgver=0.1.8
 pkgrel=1
 pkgdesc="Format and create bootable USB drives (Linux port inspired by Rufus)"
 arch=('x86_64' 'aarch64')

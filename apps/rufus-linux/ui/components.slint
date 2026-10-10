@@ -393,10 +393,14 @@ export component SelectField inherits Rectangle {
     // A controlled field only reports selections; the owner updates `value`.
     in property <bool> controlled: false;
     in property <string> placeholder: "";
+    // Compact chips sit in section headers; the prefix names what they set.
+    in property <bool> compact: false;
+    in property <string> prefix: "";
     in-out property <string> value;
     callback selected(string);
 
     property <int> current-index: -1;
+    property <length> chevron: compact ? 14px : 16px;
     min-width: 72px;
     preferred-width: 160px;
     property <bool> can-open: root.enabled && root.choices.length > 0;
@@ -410,7 +414,7 @@ export component SelectField inherits Rectangle {
         root.selected(root.choices[index]);
     }
 
-    height: Theme.field-height;
+    height: compact ? 22px : Theme.field-height;
     border-radius: Theme.control-radius;
     border-width: Theme.border-width;
     border-color: field-focus.has-focus ? Theme.focus : Theme.input;
@@ -442,23 +446,36 @@ export component SelectField inherits Rectangle {
         border-color: field-focus.has-focus ? Theme.focus.with-alpha(0.22) : transparent;
     }
 
-    Text {
-        x: Theme.space-3;
-        width: parent.width - Theme.space-3 - 32px;
+    HorizontalLayout {
+        x: root.compact ? Theme.space-2 : Theme.space-3;
+        width: parent.width - self.x - root.chevron - (root.compact ? 8px : 16px);
         height: parent.height;
-        text: root.value == "" ? root.placeholder : root.value;
-        color: root.value == "" ? Theme.muted : Theme.text;
-        font-family: Theme.body-font;
-        font-size: 13px;
-        vertical-alignment: center;
-        overflow: elide;
+        spacing: 5px;
+        if root.prefix != "": Text {
+            horizontal-stretch: 0;
+            text: root.prefix;
+            color: Theme.muted;
+            font-family: Theme.body-font;
+            font-size: root.compact ? 12px : 13px;
+            vertical-alignment: center;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.value == "" ? root.placeholder : root.value;
+            color: root.value == "" ? Theme.muted : Theme.text;
+            font-family: Theme.body-font;
+            font-size: root.compact ? 12px : 13px;
+            font-weight: root.compact ? 500 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
     }
 
     Image {
-        x: parent.width - 26px;
+        x: parent.width - self.width - (root.compact ? 5px : 10px);
         y: (parent.height - self.height) / 2;
-        width: 16px;
-        height: 16px;
+        width: root.chevron;
+        height: root.chevron;
         source: @image-url("../../../assets/icons/toolbar/chevron.svg");
         colorize: Theme.muted;
     }

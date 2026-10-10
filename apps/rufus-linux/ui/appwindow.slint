@@ -65,6 +65,10 @@ export component AppWindow inherits Window {
     in-out property <string> status-operation: "Ready";
     in-out property <float> status-progress: 0;
     in-out property <string> status-telemetry: "";
+    in-out property <[string]> size-unit-choices;
+    in-out property <string> size-unit: "Auto";
+    in-out property <[string]> speed-unit-choices;
+    in-out property <string> speed-unit: "MB/s";
     in-out property <string> status-tone: "neutral";
     in-out property <bool> status-active: false;
     in-out property <string> status-line: "Select a device and image, then Start.";
@@ -79,7 +83,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-about: false;
     in-out property <bool> show-advanced: false;
     in-out property <string> capability-hint: "";
-    in-out property <string> app-version: "0.1.7";
+    in-out property <string> app-version: "0.1.8";
 
     // —— Callbacks ——
     callback refresh-devices();
@@ -90,6 +94,8 @@ export component AppWindow inherits Window {
     callback target-selected(string);
     callback filesystem-selected(string);
     callback cluster-selected(string);
+    callback size-unit-selected(string);
+    callback speed-unit-selected(string);
     callback start-clicked();
     callback cancel-clicked();
     callback confirm-accepted();
@@ -328,6 +334,25 @@ export component AppWindow inherits Window {
                     Card {
                         SectionHeader {
                             title: "Status";
+                            // Display only, so these stay usable while a job runs.
+                            SelectField {
+                                compact: true;
+                                width: 104px;
+                                prefix: "Size";
+                                accessible-name: "Size unit";
+                                choices: root.size-unit-choices;
+                                value <=> root.size-unit;
+                                selected(v) => { root.size-unit-selected(v); }
+                            }
+                            SelectField {
+                                compact: true;
+                                width: 108px;
+                                prefix: "Speed";
+                                accessible-name: "Speed unit";
+                                choices: root.speed-unit-choices;
+                                value <=> root.speed-unit;
+                                selected(v) => { root.speed-unit-selected(v); }
+                            }
                             StatusBadge {
                                 text: root.status-tone == "error" ? "FAILED"
                                     : root.status-phase == "CANCELLED" ? "CANCELLED"
