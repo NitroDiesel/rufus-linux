@@ -73,7 +73,7 @@ remains the authority on what a release enables.
 
 - Plug-and-play: every write goes through udisks2, so the AppImage needs
   nothing installed (0.1.6). The native helper is the fallback.
-- Selectable size and speed units for progress, with time left (0.1.8).
+- Selectable size and speed units for progress, with time left (0.1.8); binary KiB/MiB/GiB and decimal KB/MB/GB sizes (1.0.1).
 
 ## Order
 
