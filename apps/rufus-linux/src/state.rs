@@ -1532,11 +1532,8 @@ mod tests {
         // Formatting never carries Windows choices.
         st.select_boot(BootSelection::NonBootable);
         assert!(st.wue_prompt(false).is_none());
-        let request = st.build_helper_request().expect("format request");
-        assert!(matches!(
-            request.operation,
-            HelperOperation::FormatMedia { .. }
-        ));
+        assert_eq!(st.write_mode(), WriteMode::FormatOnly);
+        assert!(st.request_customization(WriteMode::FormatOnly).is_none());
     }
 
     #[test]
