@@ -2,7 +2,7 @@
 
 Rufus Linux preserves upstream concepts where Linux has a safe implementation. It does not claim that a visible option works until it can be completed end to end. **Available** means enabled in this release; **blocked** means the input is recognized but Start remains disabled with a reason; **planned** means no complete product flow exists yet.
 
-## Available in 0.1
+## Available in 1.0
 
 | Capability | Linux implementation | Notes |
 |---|---|---|
@@ -43,7 +43,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
 
-## Changes in 0.1.9
+## Changes in 1.0.0
 
 Start now shows upstream's **Windows User Experience** dialog for Windows 10
 and 11 installer ISOs, with the options upstream offers for the image's build

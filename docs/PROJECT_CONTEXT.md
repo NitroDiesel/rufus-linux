@@ -18,10 +18,10 @@ Debian/Ubuntu, and Fedora. Feature parity means implementing an upstream concept
 safely on Linux; it does not mean exposing a control before its full operation
 is implemented and verified.
 
-## Current baseline: 0.1.9
+## Current baseline: 1.0.0
 
-Version 0.1.9 is the continuation baseline. Its public installers belong in the
-[v0.1.9 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.9).
+Version 1.0.0 is the continuation baseline. Its public installers belong in the
+[v1.0.0 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v1.0.0).
 Release titles are `v<version>`. [`PARITY.md`](PARITY.md) tracks every
 upstream Rufus feature and the order in which the rest will land.
 
@@ -35,7 +35,7 @@ Completed product work includes:
   with optional Windows 7 MBR and NTFS/FAT32 boot records for BIOS, file-level
   read-back verification, and an in-process UDF/ISO 9660 reader;
 - upstream's Windows User Experience dialog on Start for Windows 10/11 ISOs
-  (0.1.9): options chosen per build from the WIM index, written as a generated
+  (1.0.0): options chosen per build from the WIM index, written as a generated
   `autounattend.xml` (or `$OEM$` Panther file) with upstream's
   `appraiserres.dll` and signed Setup wrapper bypasses. The request carries
   only typed, validated choices; the helper library renders the XML;
