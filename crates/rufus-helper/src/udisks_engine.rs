@@ -11,10 +11,12 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 
 use rufus_core::plan::{BootMode, ImageSourceKind};
+use rufus_helper_protocol::WindowsCustomization;
 use rufus_image::isofs;
 
 use super::*;
 use crate::udisks::{ObjectPath, Udisks};
+use crate::unattend;
 use crate::windows_media::{self as winmedia, Span};
 
 const MIB: u64 = 1024 * 1024;
@@ -44,8 +46,14 @@ fn validate_with(request: &HelperRequest, udisks: &Udisks) -> Result<(), HelperE
             source,
             format,
             install_bootloader,
+            windows_customization,
             ..
         } => {
+            if windows_customization.is_some() && *write_mode != WriteMode::IsoFileCopy {
+                return Err(HelperError::Operation(
+                    "Windows customization needs Windows installer media".into(),
+                ));
+            }
             if install_bootloader.is_some() || format.persistence_bytes != 0 {
                 return Err(HelperError::Operation(
                     "bootloader and persistence operations are not enabled".into(),
@@ -425,22 +433,26 @@ pub fn execute_with_udisks(
             )?;
         }
         HelperOperation::WriteMedia {
-            source,
             format,
             verification,
             bad_blocks,
+            windows_customization,
             ..
         } => {
             let file = source_file
                 .as_ref()
                 .ok_or_else(|| HelperError::Operation("bound source descriptor missing".into()))?;
-            let _ = source;
             write_windows_media(
                 &target,
                 file,
-                format,
-                *verification,
-                *bad_blocks,
+                WindowsMediaOptions {
+                    format,
+                    verification: *verification,
+                    bad_blocks: *bad_blocks,
+                    customization: windows_customization
+                        .as_deref()
+                        .filter(|options| !options.is_empty()),
+                },
                 &mut report,
             )?;
         }
@@ -717,14 +729,64 @@ fn format_media(
     format_volume(target.udisks, &volume, format)
 }
 
+struct WindowsMediaOptions<'a> {
+    format: &'a FormatSpec,
+    verification: VerificationLevel,
+    bad_blocks: bool,
+    customization: Option<&'a WindowsCustomization>,
+}
+
+/// Read the image's Windows details and refuse customization it cannot take.
+fn customization_plan(
+    iso: &mut File,
+    listing: &isofs::IsoListing,
+    options: &WindowsCustomization,
+) -> Result<(unattend::AnswerFile, u32), HelperError> {
+    let windows = rufus_image::windows::inspect(iso, listing)
+        .filter(|windows| windows.is_windows_10_or_later())
+        .ok_or_else(|| {
+            HelperError::Operation(
+                "Windows User Experience options need Windows 10 or later media".into(),
+            )
+        })?;
+    if windows.has_panther_unattend || listing.has_file(unattend::ROOT_ANSWER_FILE) {
+        return Err(HelperError::Operation(
+            "this image already has its own answer file".into(),
+        ));
+    }
+    if let Some(index) = options.silent_install_index {
+        if !windows
+            .editions
+            .iter()
+            .any(|edition| edition.index == index)
+        {
+            return Err(HelperError::Operation(format!(
+                "this image has no Windows edition {index}"
+            )));
+        }
+    }
+    let arch = windows.arch.ok_or_else(|| {
+        HelperError::Operation("the Windows architecture of this image is unknown".into())
+    })?;
+    let language = windows.setup_language.as_deref().unwrap_or("en-US");
+    Ok((
+        unattend::answer_file(options, arch, language),
+        windows.build,
+    ))
+}
+
 fn write_windows_media(
     target: &Target<'_>,
     source: &File,
-    format: &FormatSpec,
-    verification: VerificationLevel,
-    bad_blocks: bool,
+    options: WindowsMediaOptions<'_>,
     report: &mut Reporter<'_>,
 ) -> Result<(), HelperError> {
+    let WindowsMediaOptions {
+        format,
+        verification,
+        bad_blocks,
+        customization,
+    } = options;
     let udisks = target.udisks;
     let cancel = target.cancel;
     // Everything that can be checked is checked before the first write.
@@ -763,6 +825,10 @@ fn write_windows_media(
         needs.uefi_ntfs,
     )?;
     winmedia::check_fits(&listing, format.filesystem, layout.data.size)?;
+    let customization = match customization {
+        Some(options) => Some((customization_plan(&mut iso, &listing, options)?, options)),
+        None => None,
+    };
     report.log(format!(
         "Windows media: {} files, {} MiB, {}{}",
         listing.entries.iter().filter(|entry| !entry.is_dir).count(),
@@ -845,7 +911,7 @@ fn write_windows_media(
     let mounted = Mounted::new(udisks, &data, "")?;
     let total = listing.total_file_bytes();
     let mut meter = Meter::new(total);
-    let copies = {
+    let mut copies = {
         let mut on_progress = |done: u64, path: &str| {
             report.bytes(
                 ProgressStage::ExtractingFiles,
@@ -856,6 +922,23 @@ fn write_windows_media(
         };
         winmedia::copy_listing(&mut iso, &listing, &mounted.path, cancel, &mut on_progress)?
     };
+    if let Some(((answer, build), options)) = &customization {
+        report.stage(
+            ProgressStage::ApplyingCustomization,
+            "Applying Windows customization",
+        );
+        for line in &answer.log {
+            report.log(line.clone());
+        }
+        winmedia::apply_customization(
+            &mounted.path,
+            answer,
+            options.bypass_requirements,
+            *build,
+            &mut copies,
+            &mut |line| report.log(line),
+        )?;
+    }
     let written_root = mounted.path.clone();
     report.stage(ProgressStage::Syncing, "Flushing the copied files");
     mounted.unmount()?;
@@ -873,7 +956,7 @@ fn write_windows_media(
     if verification != VerificationLevel::None {
         report.stage(ProgressStage::Verifying, "Reading the copied files back");
         let mounted = Mounted::new(udisks, &data, "ro")?;
-        let mut meter = Meter::new(total);
+        let mut meter = Meter::new(winmedia::copied_bytes(&copies));
         let mut on_progress = |done: u64| {
             report.bytes(
                 ProgressStage::Verifying,
@@ -1038,6 +1121,275 @@ mod tests {
         path
     }
 
+    /// A Windows 11 24H2 layout with a real WIM index, for customization.
+    fn windows_11_fixture(dir: &Path) -> PathBuf {
+        use rufus_image::isofs::fixture::{self, Node};
+        let install = rufus_image::wim::fixture(
+            r#"<WIM><IMAGE INDEX="1"><NAME>Windows 11 Pro</NAME><DISPLAYNAME>Windows 11 Pro</DISPLAYNAME>
+<WINDOWS><ARCH>9</ARCH><VERSION><MAJOR>10</MAJOR><MINOR>0</MINOR><BUILD>26100</BUILD></VERSION></WINDOWS></IMAGE></WIM>"#,
+        );
+        let mut setup = vec![0u8; 0x200];
+        setup[..2].copy_from_slice(b"MZ");
+        setup[0x3c] = 0x80;
+        setup[0x80..0x84].copy_from_slice(b"PE\0\0");
+        setup[0x84..0x86].copy_from_slice(&0x8664u16.to_le_bytes());
+        let path = dir.join("windows11.iso");
+        std::fs::write(
+            &path,
+            fixture::udf(vec![
+                Node::File("bootmgr", 4096),
+                Node::File("bootmgr.efi", 4096),
+                Node::Bytes("setup.exe", setup),
+                Node::Dir(
+                    "efi",
+                    vec![Node::Dir("boot", vec![Node::File("bootx64.efi", 9000)])],
+                ),
+                Node::Dir(
+                    "sources",
+                    vec![
+                        Node::File("appraiserres.dll", 3000),
+                        Node::Bytes("install.wim", install),
+                    ],
+                ),
+            ]),
+        )
+        .expect("write ISO fixture");
+        path
+    }
+
+    /// The Windows User Experience options through the real daemon: the
+    /// answer file and bypass files land on the media and pass verification.
+    #[test]
+    #[ignore = "needs udisks2 and an active desktop session; attaches loop devices"]
+    fn loop_device_windows_media_carries_the_answer_file() {
+        let udisks = Udisks::connect().expect("udisks2");
+        let dir = std::env::temp_dir().join(format!("rufus-udisks-wue-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("fixture directory");
+        let iso_path = windows_11_fixture(&dir);
+        let disk_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(dir.join("disk.img"))
+            .expect("backing file");
+        disk_file.set_len(320 * MIB).expect("size backing file");
+        let block = udisks.loop_setup(&disk_file).expect("loop setup");
+        let disk = LoopDisk {
+            udisks: &udisks,
+            block,
+        };
+        let number = udisks.device_number(&disk.block).expect("device number");
+        let identity = DeviceIdentity {
+            node: PathBuf::from("/dev/loop"),
+            sysfs_path: PathBuf::from("/sys/devices/virtual/block/loop"),
+            kernel_name: "loop".into(),
+            major: libc::major(number),
+            minor: libc::minor(number),
+            size_bytes: udisks.size(&disk.block).expect("size"),
+            logical_sector_size: 512,
+            model: String::new(),
+            vendor: String::new(),
+            serial: String::new(),
+            transport: String::new(),
+            removable: true,
+            read_only: false,
+        };
+        let cancel = CancellationToken::new();
+        let target = Target {
+            udisks: &udisks,
+            disk: &disk.block,
+            identity: &identity,
+            cancel: &cancel,
+        };
+        let format = FormatSpec {
+            scheme: PartitionScheme::Gpt,
+            boot_mode: BootMode::Uefi,
+            filesystem: FileSystem::Ntfs,
+            label: "CCCOMA_X64FRE_EN-US_DV9".into(),
+            cluster_size: None,
+            persistence_bytes: 0,
+            quick_format: true,
+        };
+        let customization = WindowsCustomization {
+            bypass_requirements: true,
+            no_online_account: true,
+            local_account: Some("rufus".into()),
+            no_data_collection: true,
+            ..WindowsCustomization::default()
+        };
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let collected = std::sync::Arc::clone(&events);
+        let mut sink: EventSink = Box::new(move |event| {
+            collected.lock().expect("events").push(event);
+        });
+        let mut report = Reporter {
+            job_id: JobId::new(1),
+            sink: &mut sink,
+            step: 0,
+            total: 10,
+        };
+        let source = File::open(&iso_path).expect("open ISO fixture");
+        write_windows_media(
+            &target,
+            &source,
+            WindowsMediaOptions {
+                format: &format,
+                verification: VerificationLevel::FullReadback,
+                bad_blocks: false,
+                customization: Some(&customization),
+            },
+            &mut report,
+        )
+        .expect("customized Windows media");
+        let logged: Vec<String> = events
+            .lock()
+            .expect("events")
+            .iter()
+            .filter_map(|event| match event {
+                HelperEvent::Log { line, .. } => Some(line.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            logged.iter().any(|line| line == "• Bypass SB/TPM/RAM"),
+            "{logged:?}"
+        );
+
+        let data = udisks
+            .partitions(&disk.block)
+            .expect("partitions")
+            .into_iter()
+            .find(|part| {
+                udisks
+                    .partition_geometry(part)
+                    .is_ok_and(|geometry| geometry.number == 1)
+            })
+            .expect("data partition");
+        let mounted = Mounted::new(&udisks, &data, "ro").expect("mount data");
+        let answer =
+            std::fs::read_to_string(mounted.path.join("autounattend.xml")).expect("answer file");
+        assert!(answer.contains("BypassTPMCheck"));
+        assert!(answer.contains("<Name>rufus</Name>"));
+        assert_eq!(
+            std::fs::metadata(mounted.path.join("sources/appraiserres.dll"))
+                .expect("placeholder")
+                .len(),
+            0
+        );
+        assert!(mounted.path.join("sources/appraiserres.bak").is_file());
+        assert!(mounted.path.join("setup.dll").is_file());
+        assert_eq!(
+            std::fs::read(mounted.path.join("setup.exe"))
+                .expect("wrapper")
+                .len(),
+            include_bytes!("../assets/setup/setup_x64.exe").len()
+        );
+        mounted.unmount().expect("unmount data");
+        drop(disk);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A real Windows ISO, customized, on a loop device whose backing file
+    /// is kept for a firmware boot test:
+    /// `RUFUS_WINDOWS_ISO=… RUFUS_TEST_DISK=/path/disk.img [RUFUS_TEST_SILENT=1]`.
+    #[test]
+    #[ignore = "needs udisks2, a Windows ISO, and about 9 GiB of disk space"]
+    fn real_windows_iso_becomes_customized_media() {
+        let iso_path = std::env::var_os("RUFUS_WINDOWS_ISO").expect("RUFUS_WINDOWS_ISO");
+        let disk_path = std::env::var_os("RUFUS_TEST_DISK").expect("RUFUS_TEST_DISK");
+        let silent = std::env::var_os("RUFUS_TEST_SILENT").is_some();
+        let udisks = Udisks::connect().expect("udisks2");
+        let disk_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&disk_path)
+            .expect("backing file");
+        disk_file
+            .set_len(9 * 1024 * MIB)
+            .expect("size backing file");
+        let block = udisks.loop_setup(&disk_file).expect("loop setup");
+        let disk = LoopDisk {
+            udisks: &udisks,
+            block,
+        };
+        let number = udisks.device_number(&disk.block).expect("device number");
+        let identity = DeviceIdentity {
+            node: PathBuf::from("/dev/loop"),
+            sysfs_path: PathBuf::from("/sys/devices/virtual/block/loop"),
+            kernel_name: "loop".into(),
+            major: libc::major(number),
+            minor: libc::minor(number),
+            size_bytes: udisks.size(&disk.block).expect("size"),
+            logical_sector_size: 512,
+            model: String::new(),
+            vendor: String::new(),
+            serial: String::new(),
+            transport: String::new(),
+            removable: true,
+            read_only: false,
+        };
+        let cancel = CancellationToken::new();
+        let target = Target {
+            udisks: &udisks,
+            disk: &disk.block,
+            identity: &identity,
+            cancel: &cancel,
+        };
+        let format = FormatSpec {
+            scheme: PartitionScheme::Gpt,
+            boot_mode: BootMode::Uefi,
+            filesystem: FileSystem::Ntfs,
+            label: "WIN11 (SILENT)".into(),
+            cluster_size: None,
+            persistence_bytes: 0,
+            quick_format: true,
+        };
+        let mut iso = File::open(&iso_path).expect("open ISO");
+        let listing = isofs::list(&mut iso).expect("list").expect("listing");
+        let windows = rufus_image::windows::inspect(&mut iso, &listing).expect("Windows ISO");
+        let customization = WindowsCustomization {
+            bypass_requirements: true,
+            no_online_account: true,
+            local_account: Some("rufus".into()),
+            no_data_collection: true,
+            regional: silent.then(|| rufus_helper_protocol::RegionalSettings {
+                input_locale: "0409:00000409".into(),
+                system_locale: "en-US".into(),
+                user_locale: "en-US".into(),
+                ui_language: "en-US".into(),
+                time_zone: Some("UTC".into()),
+            }),
+            silent_install_index: silent.then(|| windows.editions[0].index),
+            ..WindowsCustomization::default()
+        };
+        let mut sink: EventSink = Box::new(|event| {
+            if let HelperEvent::Log { line, .. } = event {
+                eprintln!("{line}");
+            }
+        });
+        let mut report = Reporter {
+            job_id: JobId::new(1),
+            sink: &mut sink,
+            step: 0,
+            total: 10,
+        };
+        write_windows_media(
+            &target,
+            &iso,
+            WindowsMediaOptions {
+                format: &format,
+                verification: VerificationLevel::None,
+                bad_blocks: false,
+                customization: Some(&customization),
+            },
+            &mut report,
+        )
+        .expect("customized Windows media");
+    }
+
     /// End to end through the real daemon on a loop device the test owns:
     /// partitioning, mkfs, UEFI:NTFS, file copy, and read-back verification.
     /// BIOS boot code is then applied to the backing file, which needs no
@@ -1141,9 +1493,12 @@ mod tests {
             write_windows_media(
                 &target,
                 &source,
-                &format,
-                VerificationLevel::FullReadback,
-                false,
+                WindowsMediaOptions {
+                    format: &format,
+                    verification: VerificationLevel::FullReadback,
+                    bad_blocks: false,
+                    customization: None,
+                },
                 &mut report,
             )
             .unwrap_or_else(|error| panic!("{scheme:?} {filesystem:?}: {error}"));

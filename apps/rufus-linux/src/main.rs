@@ -4,9 +4,11 @@ mod confirmation;
 mod helper_client;
 mod hotplug;
 mod image_inspection;
+mod regional;
 mod settings;
 mod state;
 mod units;
+mod wue;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -19,7 +21,7 @@ use helper_client::{RunningHelper, WorkerMessage};
 use hotplug::BlockDeviceWatcher;
 use rufus_helper_protocol::{HelperEvent, HelperResult};
 use slint::{
-    CloseRequestResponse, ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel,
+    CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel,
 };
 
 use state::{AppState, BootSelection, DeviceListLabel};
@@ -72,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
     let state = Rc::new(RefCell::new(AppState::new()));
     let running_helper = Rc::new(RefCell::new(None::<RunningHelper>));
+    let wue_session = Rc::new(RefCell::new(None::<WueSession>));
     let (helper_sender, helper_receiver) = mpsc::channel::<WorkerMessage>();
     let (checksum_sender, checksum_receiver) = mpsc::channel::<Result<String, String>>();
     let (image_sender, image_receiver) = mpsc::channel();
@@ -244,7 +247,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut st = state.borrow_mut();
             // Keep the exact device shown in a destructive confirmation stable;
             // the queued refresh runs as soon as the dialog or operation ends.
-            if refresh_pending && !st.is_busy && !ui.get_show_confirm() {
+            if refresh_pending
+                && !st.is_busy
+                && !ui.get_show_confirm()
+                && !ui.get_show_wue()
+                && !ui.get_show_silent_warning()
+            {
                 refresh_devices_ui(&ui, &mut st);
                 refresh_pending = false;
             }
@@ -453,6 +461,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let ui_weak = ui.as_weak();
         let state = state.clone();
+        let wue_session = Rc::clone(&wue_session);
         ui.on_start_clicked(move || {
             if let Some(ui) = ui_weak.upgrade() {
                 let mut st = state.borrow_mut();
@@ -460,19 +469,87 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 st.quick_format = ui.get_quick_format();
                 st.check_bad_blocks = ui.get_check_bad_blocks();
                 st.verify_write = ui.get_verify_write();
-                match st.build_confirm() {
-                    Ok(body) => {
-                        ui.set_confirm_title(st.action_name().into());
-                        ui.set_confirm_body(body.into());
-                        ui.set_show_confirm(true);
-                    }
-                    Err(msg) => {
-                        st.push_log(format!("Cannot start: {msg}"));
-                        ui.set_status_line(msg.into());
-                        ui.set_status_tone("error".into());
-                        apply_state_to_ui(&ui, &st);
+                st.windows_customization = None;
+                if st.build_confirm().is_ok() {
+                    // Upstream asks before the destructive confirmation.
+                    if let Some(prompt) = st.wue_prompt(ui.get_show_advanced()) {
+                        open_wue(&ui, &mut wue_session.borrow_mut(), prompt);
+                        return;
                     }
                 }
+                show_confirm(&ui, &mut st);
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let wue_session = Rc::clone(&wue_session);
+        ui.on_wue_toggled(move |index, on| {
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut session = wue_session.borrow_mut();
+                let Some(session) = session.as_mut() else {
+                    return;
+                };
+                let Some(&option) = session.prompt.options.get(index as usize) else {
+                    return;
+                };
+                session.selection.retain(|selected| *selected != option);
+                if on {
+                    session.selection.push(option);
+                }
+                if !wue::silent_allowed(&session.selection) {
+                    session
+                        .selection
+                        .retain(|selected| *selected != wue::WueOption::SilentInstall);
+                }
+                set_wue_rows(&ui, session);
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        let wue_session = Rc::clone(&wue_session);
+        ui.on_wue_accepted(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let silent = wue_session.borrow().as_ref().is_some_and(|session| {
+                    session.selection.contains(&wue::WueOption::SilentInstall)
+                });
+                if silent {
+                    ui.set_show_silent_warning(true);
+                } else {
+                    finish_wue(&ui, &mut state.borrow_mut(), &mut wue_session.borrow_mut());
+                }
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        let wue_session = Rc::clone(&wue_session);
+        ui.on_silent_accepted(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_show_silent_warning(false);
+                finish_wue(&ui, &mut state.borrow_mut(), &mut wue_session.borrow_mut());
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_silent_rejected(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                // Back to the options, as upstream returns to its dialog.
+                ui.set_show_silent_warning(false);
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let wue_session = Rc::clone(&wue_session);
+        ui.on_wue_rejected(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_show_wue(false);
+                wue_session.borrow_mut().take();
             }
         });
     }
@@ -645,6 +722,145 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ui.run()?;
     Ok(())
+}
+
+/// The open Windows User Experience dialog.
+struct WueSession {
+    prompt: state::WuePrompt,
+    selection: Vec<wue::WueOption>,
+}
+
+fn open_wue(ui: &AppWindow, slot: &mut Option<WueSession>, prompt: state::WuePrompt) {
+    ui.set_wue_username(prompt.username.as_str().into());
+    let editions: Vec<&str> = prompt.editions.iter().map(String::as_str).collect();
+    ui.set_wue_editions(string_model(&editions));
+    ui.set_wue_edition(
+        prompt
+            .editions
+            .get(prompt.edition)
+            .map(String::as_str)
+            .unwrap_or_default()
+            .into(),
+    );
+    let mut session = WueSession {
+        selection: prompt.selected.clone(),
+        prompt,
+    };
+    if !wue::silent_allowed(&session.selection) {
+        session
+            .selection
+            .retain(|selected| *selected != wue::WueOption::SilentInstall);
+    }
+    set_wue_rows(ui, &session);
+    *slot = Some(session);
+    ui.set_show_wue(true);
+}
+
+/// Rows in upstream's order; Tab visits each enabled checkbox and the
+/// field that follows it, then Cancel and OK.
+fn set_wue_rows(ui: &AppWindow, session: &WueSession) {
+    use wue::WueOption;
+    let silent_allowed = wue::silent_allowed(&session.selection);
+    let mut next_slot = 0;
+    let mut take_slot = |focusable: bool| {
+        if focusable {
+            next_slot += 1;
+            next_slot - 1
+        } else {
+            -1
+        }
+    };
+    let rows: Vec<WueRow> = session
+        .prompt
+        .options
+        .iter()
+        .map(|&option| {
+            let (label, detail) = option.text();
+            let enabled = option != WueOption::SilentInstall || silent_allowed;
+            let kind = match option {
+                WueOption::LocalAccount => "username",
+                WueOption::SilentInstall => "edition",
+                _ => "",
+            };
+            let slot = take_slot(enabled);
+            let control_slot = take_slot(enabled && !kind.is_empty());
+            WueRow {
+                label: label.into(),
+                detail: detail.into(),
+                checked: session.selection.contains(&option),
+                enabled,
+                kind: kind.into(),
+                slot,
+                control_slot,
+            }
+        })
+        .collect();
+    ui.set_wue_slot_count(next_slot + 2);
+    update_rows(ui, rows);
+}
+
+/// Update the shown rows in place: replacing the model would recreate them
+/// and drop keyboard focus from the option just toggled.
+fn update_rows(ui: &AppWindow, rows: Vec<WueRow>) {
+    let current = ui.get_wue_rows();
+    if let Some(model) = current.as_any().downcast_ref::<VecModel<WueRow>>() {
+        if model.row_count() == rows.len() {
+            for (index, row) in rows.into_iter().enumerate() {
+                if model.row_data(index).as_ref() != Some(&row) {
+                    model.set_row_data(index, row);
+                }
+            }
+            return;
+        }
+    }
+    ui.set_wue_rows(ModelRc::new(VecModel::from(rows)));
+}
+
+fn finish_wue(ui: &AppWindow, st: &mut AppState, slot: &mut Option<WueSession>) {
+    ui.set_show_wue(false);
+    let Some(session) = slot.take() else {
+        return;
+    };
+    let edition = ui.get_wue_edition();
+    let edition = session
+        .prompt
+        .editions
+        .iter()
+        .position(|name| name.as_str() == edition.as_str())
+        .unwrap_or(session.prompt.edition);
+    st.accept_wue(
+        &session.prompt,
+        &session.selection,
+        &ui.get_wue_username(),
+        edition,
+    );
+    match &st.windows_customization {
+        Some(customization) => {
+            let lines = wue::summary(customization);
+            for line in lines.lines() {
+                st.push_log(line.to_owned());
+            }
+        }
+        None => st.push_log("Note: No Windows User Experience options selected".into()),
+    }
+    show_confirm(ui, st);
+}
+
+/// The destructive confirmation, or why Start cannot proceed.
+fn show_confirm(ui: &AppWindow, st: &mut AppState) {
+    match st.build_confirm() {
+        Ok(body) => {
+            ui.set_confirm_title(st.action_name().into());
+            ui.set_confirm_body(body.into());
+            ui.set_show_confirm(true);
+        }
+        Err(msg) => {
+            st.push_log(format!("Cannot start: {msg}"));
+            ui.set_status_line(msg.into());
+            ui.set_status_tone("error".into());
+            apply_state_to_ui(ui, st);
+        }
+    }
 }
 
 fn string_model(items: &[&str]) -> ModelRc<SharedString> {

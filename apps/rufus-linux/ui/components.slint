@@ -397,6 +397,7 @@ export component SelectField inherits Rectangle {
     in property <bool> compact: false;
     in property <string> prefix: "";
     in-out property <string> value;
+    out property <bool> has-keyboard-focus: field-focus.has-focus;
     callback selected(string);
 
     property <int> current-index: -1;

@@ -18,10 +18,10 @@ Debian/Ubuntu, and Fedora. Feature parity means implementing an upstream concept
 safely on Linux; it does not mean exposing a control before its full operation
 is implemented and verified.
 
-## Current baseline: 0.1.8
+## Current baseline: 0.1.9
 
-Version 0.1.8 is the continuation baseline. Its public installers belong in the
-[v0.1.8 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.8).
+Version 0.1.9 is the continuation baseline. Its public installers belong in the
+[v0.1.9 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v0.1.9).
 Release titles are `v<version>`. [`PARITY.md`](PARITY.md) tracks every
 upstream Rufus feature and the order in which the rest will land.
 
@@ -34,6 +34,11 @@ Completed product work includes:
   upstream layout: NTFS/exFAT plus the signed UEFI:NTFS partition, or FAT32,
   with optional Windows 7 MBR and NTFS/FAT32 boot records for BIOS, file-level
   read-back verification, and an in-process UDF/ISO 9660 reader;
+- upstream's Windows User Experience dialog on Start for Windows 10/11 ISOs
+  (0.1.9): options chosen per build from the WIM index, written as a generated
+  `autounattend.xml` (or `$OEM$` Panther file) with upstream's
+  `appraiserres.dll` and signed Setup wrapper bypasses. The request carries
+  only typed, validated choices; the helper library renders the XML;
 
 - a native Slint desktop application with aligned compact controls, light and
   dark themes, keyboard-operable custom buttons, true blocking modals, and a
@@ -65,7 +70,7 @@ The authoritative feature truth is
 [`CAPABILITIES.md`](CAPABILITIES.md). Recognized but blocked flows include
 non-hybrid Linux ISO file-copy media, FAT32 Windows media with a WIM over
 4 GB, Windows To Go, parent-dependent/4Kn/journal-replay VHD/VHDX, FreeDOS, persistence,
-bootloader installation, Windows 11 customization, Secure Boot revocation
+bootloader installation, Windows CA 2023 bootloaders, Secure Boot revocation
 checks, and drive capture. Keep these disabled with a reason until an
 end-to-end implementation and its fixtures, integration tests, and boot tests
 exist. Supported standalone 512-byte-sector VHD/VHDX images convert when
@@ -254,9 +259,11 @@ These are known follow-ups, not claims that the current release is broken:
   formatting, raw writing, Windows media, verification, cancellation, and
   disconnect during write. Automated tests, loop-backed udisks2 tests, and
   QEMU boots do not replace this gate.
-- Windows media follow-ups, in `PARITY.md` order: split WIM for FAT32, the
-  Windows User Experience (`autounattend.xml`) options, then non-hybrid Linux
-  ISO file-copy with Syslinux/GRUB.
+- Windows media follow-ups, in `PARITY.md` order: the Windows CA 2023
+  bootloader option (needs a WIM/LZX extractor for `boot.wim`), split WIM for
+  FAT32, then non-hybrid Linux ISO file-copy with Syslinux/GRUB. Rufus Linux
+  does not rewrite `boot.wim`, so the hardware bypass always uses upstream's
+  `RunSynchronous` fallback from the root `autounattend.xml`.
 - Desktop theme startup currently uses `RUFUS_LINUX_THEME` or `GTK_THEME`.
   Portal-backed system theme detection and persistence of a manual
   system/light/dark preference remain unimplemented.

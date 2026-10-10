@@ -1,3 +1,9 @@
+rufus-linux (0.1.9-1) unstable; urgency=medium
+
+  * Offer the Windows User Experience options for Windows 10 and 11 media.
+
+ -- Rufus Linux contributors <rufus-linux@users.noreply.github.com>  Sat, 10 Oct 2026 00:00:00 +0800
+
 rufus-linux (0.1.8-1) unstable; urgency=medium
 
   * Show progress with size, speed, and time left in selectable units.

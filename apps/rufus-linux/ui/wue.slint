@@ -1,0 +1,376 @@
+// Windows User Experience dialog, shown on Start for Windows 10 and 11
+// installer media as upstream Rufus does, and the confirmation its silent
+// install option requires. Upstream's tooltips are shown in a details area
+// for the hovered or focused option.
+
+import { Theme } from "theme.slint";
+import { DialogPanel, ModalOverlay, SelectField, TextField, WorkbenchButton } from "components.slint";
+
+export struct WueRow {
+    label: string,
+    detail: string,
+    checked: bool,
+    enabled: bool,
+    // "", "username", or "edition": the control that follows the caption.
+    kind: string,
+    // Tab order positions; -1 when not focusable.
+    slot: int,
+    control-slot: int,
+}
+
+// A checkbox whose caption wraps. The owner keeps `checked` and updates it
+// from `toggled`.
+export component WueCheck inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> checked: false;
+    in property <bool> warning: false;
+    out property <bool> hovered: touch.has-hover;
+    out property <bool> has-keyboard-focus: check-focus.has-focus;
+    callback toggled(bool);
+
+    public function focus-check() {
+        if root.enabled { check-focus.focus(); }
+    }
+
+    function toggle() {
+        if root.enabled { root.toggled(!root.checked); }
+    }
+
+    opacity: enabled ? 1 : 0.55;
+    accessible-role: checkbox;
+    accessible-label: text;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-enabled: enabled;
+    accessible-action-default => { root.toggle(); }
+    forward-focus: check-focus;
+
+    HorizontalLayout {
+        spacing: Theme.space-2;
+        padding-top: 3px;
+        padding-bottom: 3px;
+        VerticalLayout {
+            alignment: start;
+            padding-top: 1px;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border-width: root.checked ? 0px : Theme.border-width;
+                border-color: Theme.dark-mode ? Theme.input : #a1a1aa;
+                background: root.checked ? (root.warning ? Theme.danger-solid : Theme.accent)
+                    : (touch.has-hover && root.enabled ? Theme.hover : Theme.inset);
+                Rectangle {
+                    x: -3px;
+                    y: -3px;
+                    width: parent.width + 6px;
+                    height: parent.height + 6px;
+                    border-radius: 6px;
+                    border-width: 2px;
+                    border-color: check-focus.has-focus ? Theme.focus.with-alpha(0.55) : transparent;
+                }
+                if root.checked: Image {
+                    x: 2px;
+                    y: 2px;
+                    width: 12px;
+                    height: 12px;
+                    source: @image-url("../../../assets/icons/toolbar/check.svg");
+                    colorize: Theme.accent-ink;
+                }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: root.warning ? Theme.danger : Theme.text;
+            font-family: Theme.body-font;
+            font-size: 13px;
+            font-weight: root.warning ? 600 : 400;
+            wrap: word-wrap;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            check-focus.focus();
+            root.toggle();
+        }
+    }
+
+    check-focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" {
+                root.toggle();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
+export component WueDialog inherits ModalOverlay {
+    in property <[WueRow]> rows;
+    // Focusable positions: the rows' slots, then Cancel and OK.
+    in property <int> slot-count: 2;
+    in-out property <string> username;
+    in property <[string]> editions;
+    in-out property <string> edition;
+    callback toggled(int, bool);
+    callback accepted();
+    callback rejected();
+
+    property <int> focus-slot: root.slot-count - 1;
+    property <int> focus-tick: 0;
+    property <int> hint: -1;
+
+    function focus-at(slot: int) {
+        root.focus-slot = slot;
+        root.focus-tick += 1;
+    }
+
+    dismiss => { root.rejected(); }
+    restore-focus => { root.focus-at(root.focus-slot); }
+    advance-focus => { root.focus-at(mod(root.focus-slot + 1, root.slot-count)); }
+
+    DialogPanel {
+        width: min(536px, parent.width - 24px);
+        height: min(layout.preferred-height, parent.height - 24px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        layout := VerticalLayout {
+            padding: Theme.space-5;
+            spacing: Theme.space-3;
+            Text {
+                text: "Windows User Experience";
+                color: Theme.text;
+                font-family: Theme.display-font;
+                font-size: 16px;
+                font-weight: 600;
+            }
+            Text {
+                text: "Customize Windows installation?";
+                color: Theme.muted;
+                font-family: Theme.body-font;
+                font-size: 13px;
+            }
+            VerticalLayout {
+                spacing: 2px;
+                for row[i] in root.rows: VerticalLayout {
+                    property <int> check-key: row.slot >= 0 && root.focus-slot == row.slot ? root.focus-tick : -1;
+                    changed check-key => {
+                        if self.check-key >= 0 { check.focus-check(); }
+                    }
+                    spacing: 2px;
+                    check := WueCheck {
+                        text: row.label;
+                        enabled: row.enabled;
+                        checked: row.checked;
+                        warning: row.kind == "edition";
+                        toggled(on) => { root.toggled(i, on); }
+                        changed hovered => {
+                            if self.hovered { root.hint = i; }
+                        }
+                        changed has-keyboard-focus => {
+                            if self.has-keyboard-focus {
+                                root.hint = i;
+                                root.focus-slot = row.slot;
+                            }
+                        }
+                    }
+                    if row.kind == "username": HorizontalLayout {
+                        padding-left: 24px;
+                        TextField {
+                            property <int> focus-key: row.control-slot >= 0 && root.focus-slot == row.control-slot ? root.focus-tick : -1;
+                            changed focus-key => { if self.focus-key >= 0 { self.focus(); } }
+                            width: 220px;
+                            height: 28px;
+                            enabled: row.enabled;
+                            accessible-name: "Local account username";
+                            text <=> root.username;
+                            changed has-focus => {
+                                if self.has-focus {
+                                    root.hint = i;
+                                    root.focus-slot = row.control-slot;
+                                }
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    if row.kind == "edition": HorizontalLayout {
+                        padding-left: 24px;
+                        SelectField {
+                            property <int> focus-key: row.control-slot >= 0 && root.focus-slot == row.control-slot ? root.focus-tick : -1;
+                            changed focus-key => { if self.focus-key >= 0 { self.focus(); } }
+                            width: 280px;
+                            enabled: row.enabled;
+                            accessible-name: "Windows edition to install";
+                            choices: root.editions;
+                            value <=> root.edition;
+                            changed has-keyboard-focus => {
+                                if self.has-keyboard-focus {
+                                    root.hint = i;
+                                    root.focus-slot = row.control-slot;
+                                }
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                }
+            }
+            // Room for three lines, the longest upstream tooltip.
+            Rectangle {
+                min-height: max(details.preferred-height + 2 * Theme.space-2, 64px);
+                border-radius: Theme.control-radius;
+                background: Theme.inset;
+                border-width: Theme.border-width;
+                border-color: Theme.border;
+                details := Text {
+                    x: Theme.space-3;
+                    y: Theme.space-2;
+                    width: parent.width - 2 * Theme.space-3;
+                    text: root.hint >= 0 && root.hint < root.rows.length ? root.rows[root.hint].detail
+                        : "Point at or focus an option to see what it does.";
+                    color: Theme.muted;
+                    font-family: Theme.body-font;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            HorizontalLayout {
+                spacing: Theme.space-2;
+                Rectangle { horizontal-stretch: 1; }
+                cancel := WorkbenchButton {
+                    property <int> focus-key: root.focus-slot == root.slot-count - 2 ? root.focus-tick : -1;
+                    changed focus-key => { if self.focus-key >= 0 { self.focus-button(); } }
+                    changed has-keyboard-focus => {
+                        if self.has-keyboard-focus { root.focus-slot = root.slot-count - 2; }
+                    }
+                    text: "Cancel";
+                    handles-escape: true;
+                    clicked => { root.rejected(); }
+                    escape-pressed => { root.rejected(); }
+                }
+                ok := WorkbenchButton {
+                    property <int> focus-key: root.focus-slot == root.slot-count - 1 ? root.focus-tick : -1;
+                    changed focus-key => { if self.focus-key >= 0 { self.focus-button(); } }
+                    changed has-keyboard-focus => {
+                        if self.has-keyboard-focus { root.focus-slot = root.slot-count - 1; }
+                    }
+                    text: "OK";
+                    primary: true;
+                    initial-focus: true;
+                    handles-escape: true;
+                    clicked => { root.accepted(); }
+                    escape-pressed => { root.rejected(); }
+                }
+            }
+        }
+    }
+}
+
+// Upstream's MSG_356 confirmation: every statement must be accepted.
+export component SilentInstallDialog inherits ModalOverlay {
+    callback accepted();
+    callback rejected();
+
+    property <bool> disks: false;
+    property <bool> unplug: false;
+    property <bool> liability: false;
+    property <int> focus-slot: 3;
+    property <int> focus-tick: 0;
+
+    function focus-at(slot: int) {
+        root.focus-slot = slot;
+        root.focus-tick += 1;
+    }
+
+    dismiss => { root.rejected(); }
+    restore-focus => { root.focus-at(root.focus-slot); }
+    advance-focus => {
+        root.focus-at(root.focus-slot == 3 && !(root.disks && root.unplug && root.liability)
+            ? 0 : mod(root.focus-slot + 1, 5));
+    }
+
+    DialogPanel {
+        tone: "danger";
+        width: min(480px, parent.width - 32px);
+        height: min(layout.preferred-height, parent.height - 32px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        layout := VerticalLayout {
+            padding: Theme.space-5;
+            spacing: Theme.space-3;
+            Text {
+                text: "⚠ Silent Windows installation";
+                color: Theme.danger;
+                font-family: Theme.display-font;
+                font-size: 16px;
+                font-weight: 600;
+            }
+            Text {
+                text: "You have selected to use the \"silent\" Windows installation option.\n\nThis is an advanced option, reserved for people who want to create media that does not prompt the user during Windows installation and therefore UNCONDITIONALLY ERASES the first detected disk on the target system. If you are not careful, using this option can result in IRREVERSIBLE DATA LOSS!\n\nYou MUST read and accept all of the following propositions to proceed:";
+                color: Theme.text;
+                font-family: Theme.body-font;
+                font-size: 13px;
+                wrap: word-wrap;
+            }
+            WueCheck {
+                property <int> focus-key: root.focus-slot == 0 ? root.focus-tick : -1;
+                changed focus-key => { if self.focus-key >= 0 { self.focus-check(); } }
+                text: "I WILL ensure that all disks, except the one I want to install Windows on, are disconnected.";
+                checked: root.disks;
+                toggled(on) => { root.disks = on; root.focus-slot = 0; }
+            }
+            WueCheck {
+                property <int> focus-key: root.focus-slot == 1 ? root.focus-tick : -1;
+                changed focus-key => { if self.focus-key >= 0 { self.focus-check(); } }
+                text: "I WILL ensure that I don't leave this media plugged on a PC I do not plan to erase.";
+                checked: root.unplug;
+                toggled(on) => { root.unplug = on; root.focus-slot = 1; }
+            }
+            WueCheck {
+                property <int> focus-key: root.focus-slot == 2 ? root.focus-tick : -1;
+                changed focus-key => { if self.focus-key >= 0 { self.focus-check(); } }
+                text: "I AGREE that any data loss resulting from the use of this option lies entirely with me.";
+                checked: root.liability;
+                toggled(on) => { root.liability = on; root.focus-slot = 2; }
+            }
+            HorizontalLayout {
+                spacing: Theme.space-2;
+                padding-top: Theme.space-1;
+                Rectangle { horizontal-stretch: 1; }
+                WorkbenchButton {
+                    property <int> focus-key: root.focus-slot == 3 ? root.focus-tick : -1;
+                    changed focus-key => { if self.focus-key >= 0 { self.focus-button(); } }
+                    changed has-keyboard-focus => {
+                        if self.has-keyboard-focus { root.focus-slot = 3; }
+                    }
+                    text: "Cancel";
+                    initial-focus: true;
+                    handles-escape: true;
+                    clicked => { root.rejected(); }
+                    escape-pressed => { root.rejected(); }
+                }
+                WorkbenchButton {
+                    property <int> focus-key: root.focus-slot == 4 ? root.focus-tick : -1;
+                    changed focus-key => { if self.focus-key >= 0 { self.focus-button(); } }
+                    changed has-keyboard-focus => {
+                        if self.has-keyboard-focus { root.focus-slot = 4; }
+                    }
+                    text: "OK";
+                    danger: true;
+                    enabled: root.disks && root.unplug && root.liability;
+                    handles-escape: true;
+                    clicked => { root.accepted(); }
+                    escape-pressed => { root.rejected(); }
+                }
+            }
+        }
+    }
+}

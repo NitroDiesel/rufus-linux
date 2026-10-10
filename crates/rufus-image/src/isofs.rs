@@ -78,6 +78,38 @@ pub fn copy_file(
     Ok(())
 }
 
+/// Read `len` bytes at `offset` within a listed file, or fewer at its end.
+pub fn read_range(
+    file: &mut File,
+    entry: &IsoEntry,
+    offset: u64,
+    len: usize,
+) -> io::Result<Vec<u8>> {
+    if entry.is_dir {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a file"));
+    }
+    let end = entry.size.min(offset.saturating_add(len as u64));
+    let mut out = Vec::with_capacity(end.saturating_sub(offset) as usize);
+    let mut extent_start = 0u64;
+    for extent in &entry.extents {
+        let extent_end = extent_start + extent.len;
+        let pos = offset + out.len() as u64;
+        if pos >= end {
+            break;
+        }
+        if pos < extent_end {
+            let at = out.len();
+            out.resize(at + (extent_end.min(end) - pos) as usize, 0);
+            if let Some(base) = extent.offset {
+                file.seek(SeekFrom::Start(base + (pos - extent_start)))?;
+                file.read_exact(&mut out[at..])?;
+            }
+        }
+        extent_start = extent_end;
+    }
+    Ok(out)
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct IsoListing {
     pub entries: Vec<IsoEntry>,
@@ -579,7 +611,10 @@ pub mod fixture {
     const S: usize = SECTOR as usize;
 
     pub enum Node {
+        /// A file of `pattern` bytes; large ones are stored as zero runs.
         File(&'static str, u64),
+        /// A file with exactly these contents.
+        Bytes(&'static str, Vec<u8>),
         Dir(&'static str, Vec<Node>),
     }
 
@@ -687,6 +722,15 @@ pub mod fixture {
         Some(first)
     }
 
+    fn bytes_data(image: &mut Vec<u8>, partition: usize, bytes: &[u8], next: &mut u32) -> u32 {
+        let first = *next;
+        let blocks = bytes.len().div_ceil(S).max(1) as u32;
+        *next += blocks;
+        let at = ensure(image, partition, first + blocks - 1) - (blocks as usize - 1) * S;
+        image[at..at + bytes.len()].copy_from_slice(bytes);
+        first
+    }
+
     fn write_dir(
         image: &mut Vec<u8>,
         partition: usize,
@@ -705,7 +749,7 @@ pub mod fixture {
         let mut subdirs = Vec::new();
         for child in children {
             let (name, is_dir) = match &child {
-                Node::File(name, _) => (*name, false),
+                Node::File(name, _) | Node::Bytes(name, _) => (*name, false),
                 Node::Dir(name, _) => (*name, true),
             };
             let icb = *next;
@@ -723,6 +767,10 @@ pub mod fixture {
                 Node::File(_, size) => {
                     let data = file_data(image, partition, size, next);
                     file_entry(image, partition, icb, false, size, data);
+                }
+                Node::Bytes(_, bytes) => {
+                    let data = bytes_data(image, partition, &bytes, next);
+                    file_entry(image, partition, icb, false, bytes.len() as u64, Some(data));
                 }
                 Node::Dir(_, grandchildren) => subdirs.push((icb, grandchildren)),
             }
@@ -791,6 +839,22 @@ pub mod fixture {
                         image[at + i as usize] = pattern(i);
                     }
                     records.extend(dir_record(data, size as u32, false, ident.as_bytes()));
+                }
+                Node::Bytes(name, bytes) => {
+                    let ident = format!("{};1", name.to_ascii_uppercase());
+                    let data = *next;
+                    *next += bytes.len().div_ceil(S).max(1) as u32;
+                    let at = data as usize * S;
+                    if image.len() < at + bytes.len() {
+                        image.resize(at + bytes.len(), 0);
+                    }
+                    image[at..at + bytes.len()].copy_from_slice(&bytes);
+                    records.extend(dir_record(
+                        data,
+                        bytes.len() as u32,
+                        false,
+                        ident.as_bytes(),
+                    ));
                 }
                 Node::Dir(name, grandchildren) => {
                     let child_extent = *next;

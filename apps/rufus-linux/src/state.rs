@@ -12,7 +12,7 @@ use rufus_core::progress::{CancellationToken, JobId, ProgressStage};
 use rufus_core::safety::{confirmation_message, SafetyPolicy, SafetySnapshot};
 use rufus_helper_protocol::{
     FormatSpec, HelperEvent, HelperOperation, HelperRequest, HelperResult, SourceSpec,
-    TargetIdentity, PROTOCOL_VERSION,
+    TargetIdentity, WindowsCustomization, PROTOCOL_VERSION,
 };
 use rufus_image::ImageReport;
 use rufus_linux_platform::{list_block_devices, probe_capabilities};
@@ -20,6 +20,7 @@ use rufus_linux_platform::{list_block_devices, probe_capabilities};
 use crate::helper_client::{detect_backend, Backend};
 use crate::settings::Settings;
 use crate::units::{SizeUnit, SpeedUnit};
+use crate::wue::{self, WueOption};
 
 pub const DEFAULT_VOLUME_LABEL: &str = "RUFUS";
 /// Upstream's name for a whole-device filesystem without a partition table.
@@ -52,6 +53,16 @@ impl BootSelection {
             _ => Self::DiskOrIso,
         }
     }
+}
+
+/// What the Windows User Experience dialog shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WuePrompt {
+    pub options: Vec<WueOption>,
+    pub selected: Vec<WueOption>,
+    pub username: String,
+    pub editions: Vec<String>,
+    pub edition: usize,
 }
 
 pub struct AppState {
@@ -89,6 +100,8 @@ pub struct AppState {
     pub status_telemetry: String,
     last_sample: Option<crate::units::Sample>,
     pub settings: Settings,
+    /// Accepted Windows User Experience choices for the next write.
+    pub windows_customization: Option<WindowsCustomization>,
     pub status_tone: String,
     pub status_active: bool,
     pub status_line: String,
@@ -136,6 +149,7 @@ impl AppState {
             status_telemetry: String::new(),
             last_sample: None,
             settings: Settings::load(),
+            windows_customization: None,
             status_tone: "neutral".into(),
             status_active: false,
             status_line: "Select a device and image, then Start.".into(),
@@ -300,8 +314,27 @@ impl AppState {
                     }
                 }
                 self.image_path = Some(report.path.clone());
+                let mut windows_log = Vec::new();
+                if let Some(windows) = &report.windows {
+                    windows_log.push(format!(
+                        "Windows version: {} (Build {}), {} edition(s)",
+                        windows.major,
+                        windows.build,
+                        windows.editions.len()
+                    ));
+                    if windows.has_panther_unattend {
+                        windows_log.push(
+                            "NOTICE: A '/sources/$OEM$/$$/Panther/unattend.xml' was detected on the ISO. \
+                             As a result, the 'Windows User Experience dialog' will not be displayed."
+                                .into(),
+                        );
+                    }
+                }
                 self.image_report = Some(report);
                 self.push_log(format!("Image: {}", self.image_summary));
+                for line in windows_log {
+                    self.push_log(line);
+                }
             }
             Err(e) => {
                 self.image_path = None;
@@ -578,6 +611,68 @@ impl AppState {
         }
     }
 
+    /// The Windows User Experience dialog for this Start, when upstream
+    /// would show one: Windows 10 or later media written file by file.
+    pub fn wue_prompt(&self, expert: bool) -> Option<WuePrompt> {
+        if self.write_mode() != WriteMode::IsoFileCopy {
+            return None;
+        }
+        let windows = self.image_report.as_ref()?.windows.as_ref()?;
+        if !wue::applies(windows) {
+            return None;
+        }
+        let options = wue::offered(windows, expert);
+        let selected = options
+            .iter()
+            .copied()
+            .filter(|option| self.settings.wue_options.contains(option))
+            .collect();
+        Some(WuePrompt {
+            selected,
+            editions: windows
+                .editions
+                .iter()
+                .map(|edition| edition.display_name.clone())
+                .collect(),
+            edition: wue::default_edition(windows),
+            username: wue::default_username(),
+            options,
+        })
+    }
+
+    /// Record the dialog's answer and remember the choices, keeping the
+    /// remembered state of options this image did not offer, as upstream.
+    pub fn accept_wue(
+        &mut self,
+        prompt: &WuePrompt,
+        selection: &[WueOption],
+        username: &str,
+        edition: usize,
+    ) {
+        let Some(windows) = self
+            .image_report
+            .as_ref()
+            .and_then(|report| report.windows.as_ref())
+        else {
+            return;
+        };
+        let regional = selection
+            .contains(&WueOption::Regional)
+            .then(|| crate::regional::current(&windows.languages));
+        let edition_index = windows.editions.get(edition).map(|edition| edition.index);
+        self.windows_customization = wue::customization(wue::Choices {
+            selection,
+            username,
+            edition_index,
+            regional,
+        });
+        self.settings
+            .wue_options
+            .retain(|option| !prompt.options.contains(option));
+        self.settings.wue_options.extend(selection.iter().copied());
+        self.settings.save();
+    }
+
     pub fn build_confirm(&self) -> Result<String, String> {
         if self.image_inspecting {
             return Err("Wait for image inspection to finish.".into());
@@ -615,11 +710,21 @@ impl AppState {
                 body.push_str(&crate::confirmation::source_details(source));
             }
         }
+        if let Some(customization) = self.request_customization(plan.write_mode) {
+            body.push_str("\n\n");
+            body.push_str(&wue::summary(customization));
+        }
         for extra in policy.extra_confirmations(dev, &snapshot, 1) {
             body.push_str("\n\n");
             body.push_str(extra);
         }
         Ok(body)
+    }
+
+    fn request_customization(&self, write_mode: WriteMode) -> Option<&WindowsCustomization> {
+        (write_mode == WriteMode::IsoFileCopy)
+            .then_some(self.windows_customization.as_ref())
+            .flatten()
     }
 
     fn source_on_target(&self, dev: &BlockDevice) -> bool {
@@ -784,11 +889,24 @@ impl AppState {
         }
         let plan = self.build_plan().map_err(|e| e.to_string())?;
         let dev = self.selected().ok_or("No device")?;
+        let customization = self.request_customization(plan.write_mode).cloned();
+        // Upstream marks fully unattended media in its label.
+        let label = if customization
+            .as_ref()
+            .is_some_and(|options| options.silent_install_index.is_some())
+            && !self.volume_label.contains(" (SILENT)")
+        {
+            plan.partition
+                .filesystem
+                .volume_label(&format!("{} (SILENT)", self.volume_label))
+        } else {
+            plan.partition.label.clone()
+        };
         let format = FormatSpec {
             scheme: plan.partition.scheme,
             boot_mode: plan.partition.boot_mode,
             filesystem: plan.partition.filesystem,
-            label: plan.partition.label.clone(),
+            label,
             cluster_size: plan.partition.cluster_size,
             persistence_bytes: plan.partition.persistence_bytes,
             quick_format: plan.partition.quick_format,
@@ -813,6 +931,7 @@ impl AppState {
                     verification: plan.verification,
                     bad_blocks: self.check_bad_blocks,
                     install_bootloader: None,
+                    windows_customization: customization.map(Box::new),
                 }
             }
         };
@@ -1310,6 +1429,137 @@ mod tests {
             .windows_media_unavailable_reason()
             .expect("native helper cannot copy files")
             .contains("udisks2"));
+    }
+
+    fn windows_11_report() -> ImageReport {
+        let mut report = windows_report();
+        report.windows = Some(rufus_image::windows::WindowsImage {
+            major: 11,
+            build: 26100,
+            arch: Some(rufus_image::windows::WindowsArch::Amd64),
+            editions: vec![
+                rufus_image::windows::WindowsEdition {
+                    index: 1,
+                    name: "Windows 11 Home".into(),
+                    display_name: "Windows 11 Home".into(),
+                },
+                rufus_image::windows::WindowsEdition {
+                    index: 6,
+                    name: "Windows 11 Pro".into(),
+                    display_name: "Windows 11 Pro".into(),
+                },
+            ],
+            languages: vec!["en-US".into()],
+            setup_language: Some("en-US".into()),
+            has_bootmgr_efi: true,
+            ..Default::default()
+        });
+        report
+    }
+
+    #[test]
+    fn windows_experience_choices_reach_the_confirmation_and_request() {
+        let mut st = AppState::new();
+        st.settings = Settings::default();
+        st.backend = Ok(Backend::Udisks {
+            version: "2.11.2".into(),
+        });
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+        inspect(&mut st, windows_11_report());
+        st.filesystem_label = "NTFS".into();
+        st.recompute();
+
+        let prompt = st.wue_prompt(false).expect("Windows 11 prompt");
+        assert_eq!(prompt.options[0], WueOption::BypassRequirements);
+        assert_eq!(
+            prompt.selected,
+            [WueOption::BypassRequirements, WueOption::NoOnlineAccount]
+        );
+        assert_eq!(prompt.editions[prompt.edition], "Windows 11 Pro");
+        assert!(!prompt.options.contains(&WueOption::ForceSMode));
+        assert!(st
+            .wue_prompt(true)
+            .expect("expert prompt")
+            .options
+            .contains(&WueOption::ForceSMode));
+
+        let selection = [
+            WueOption::BypassRequirements,
+            WueOption::LocalAccount,
+            WueOption::Regional,
+            WueOption::NoDataCollection,
+            WueOption::SilentInstall,
+        ];
+        st.accept_wue(&prompt, &selection, "ana", 1);
+        let customization = st.windows_customization.clone().expect("customization");
+        assert!(customization.bypass_requirements);
+        assert!(!customization.no_online_account);
+        assert_eq!(customization.local_account.as_deref(), Some("ana"));
+        assert_eq!(customization.silent_install_index, Some(6));
+        assert!(customization.regional.is_some());
+        // Silent install is not remembered; the rest replaces the old choice.
+        assert_eq!(
+            st.settings.wue_options,
+            [
+                WueOption::BypassRequirements,
+                WueOption::LocalAccount,
+                WueOption::Regional,
+                WueOption::NoDataCollection,
+                WueOption::SilentInstall,
+            ]
+        );
+        assert!(
+            !crate::wue::remembered(&st.settings.wue_options).contains(&WueOption::SilentInstall)
+        );
+
+        let body = st.build_confirm().expect("confirmation");
+        assert!(body.contains("Windows customization:"), "{body}");
+        assert!(body.contains("SILENT install of image 6"), "{body}");
+        let request = st.build_helper_request().expect("request");
+        request.validate().expect("valid request");
+        let HelperOperation::WriteMedia {
+            windows_customization,
+            format,
+            ..
+        } = request.operation
+        else {
+            panic!("write request");
+        };
+        assert_eq!(windows_customization, Some(Box::new(customization)));
+        assert_eq!(format.label, "CCCOMA_X64FRE_EN-US_DV9 (SILENT)");
+
+        // Formatting never carries Windows choices.
+        st.select_boot(BootSelection::NonBootable);
+        assert!(st.wue_prompt(false).is_none());
+        let request = st.build_helper_request().expect("format request");
+        assert!(matches!(
+            request.operation,
+            HelperOperation::FormatMedia { .. }
+        ));
+    }
+
+    #[test]
+    fn media_with_its_own_answer_file_or_older_windows_gets_no_prompt() {
+        let mut st = AppState::new();
+        st.devices = vec![sample_device()];
+        st.selected_device = Some(0);
+        let mut report = windows_11_report();
+        report
+            .windows
+            .as_mut()
+            .expect("windows")
+            .has_panther_unattend = true;
+        inspect(&mut st, report);
+        assert!(st.wue_prompt(false).is_none());
+        assert!(st
+            .log
+            .iter()
+            .any(|line| line.contains("will not be displayed")));
+        let mut report = windows_11_report();
+        report.windows.as_mut().expect("windows").major = 8;
+        inspect(&mut st, report);
+        assert!(st.wue_prompt(false).is_none());
     }
 
     #[test]

@@ -11,6 +11,7 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | Raw image write | Bounded streaming copy to an exclusively locked target | Supports `.img`, `.raw`, and other raw disk images. Source size, target identity and target capacity are rechecked. |
 | ISOHybrid disk-image write | Same raw writer | Hybrid ISO media is written byte-for-byte. |
 | Windows installer media | In-process UDF/ISO 9660 extraction onto udisks2-created partitions | Upstream layout: NTFS or exFAT plus a 1 MiB UEFI:NTFS partition (GPT basic data named `UEFI:NTFS` with the no-drive-letter attribute, or MBR type 0xEF), or a single FAT32 partition when every file fits. MBR "BIOS or UEFI" adds the Windows 7 MBR, an active partition, and the ms-sys NTFS/FAT32 boot record. Every copied file is hashed and read back. Needs udisks2. |
+| Windows User Experience options | Generated answer file written with the Windows media | Upstream's dialog on Start for Windows 10/11 ISOs: bypass TPM/Secure Boot/RAM, no online account, local account, this computer's regional options, no data collection, silent erase-and-install, no BitLocker, QoL improvements, SkuSiPolicy.p7b, and S-Mode (Advanced open). `autounattend.xml` goes to the media root, or `sources/$OEM$/$$/Panther/unattend.xml` without Setup-pass options. The bypass also empties `sources/appraiserres.dll` and, for build 26000+, adds upstream's signed Setup wrapper. Added files are read back like the rest. |
 | Compressed raw images | Fixed-path gzip, bzip2, xz/lzma, zstd and bsdtar providers | Decompressed output is capacity-bounded. Decoder failure or size mismatch is fatal. ZIP input should contain one disk image. |
 | VHD/VHDX conversion | Read-only `qemu-nbd` + `nbdcopy` stream of a protected source copy | Requires `qemu-nbd`, `nbdinfo`, and `nbdcopy`. Container bytes are never copied as a disk image. Parent-dependent, 4Kn, journal-replay, and ambiguous-CHS images stay rejected. |
 | Write verification | SHA-256 of the bytes streamed, followed by target readback | Success is reported only after hash match, `fsync`, and block cache flush. |
@@ -38,9 +39,23 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | MS-DOS | Proprietary Microsoft system files are never bundled or fetched. |
 | Linux persistence | Partition layout and distro-specific `persistence.conf`/casper behavior need image fixtures and boot tests. |
 | Syslinux, GRUB2, GRUB4DOS and ReactOS installation | Planning types exist, but no incomplete bootloader path is exposed as success. |
-| Windows 11 setup customization | Requires generated unattend files, offline WIM/registry edits and versioned fixtures. |
+| Windows CA 2023 signed bootloaders | Needs `EFI_EX`/`Fonts_EX` extracted from the LZX-compressed `boot.wim`; the option is not shown yet. |
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
+
+## Changes in 0.1.9
+
+Start now shows upstream's **Windows User Experience** dialog for Windows 10
+and 11 installer ISOs, with the options upstream offers for the image's build
+(read from the `install.wim`/`install.esd` index) and its tooltips in a
+details area. The choices become an answer file on the media and are listed in
+the destructive confirmation. Silent install asks for the edition and the three
+acknowledgements, and appends ` (SILENT)` to the label. Choices other than
+silent install and S-Mode persist. Regional options come from the session
+locale, the configured XKB layout, and the time zone, mapped to Windows names
+through Unicode CLDR data. Media made from a Windows 11 build 26300 ISO with
+the bypass and silent install booted in QEMU (UEFI, no TPM, 2.5 GB of RAM) and
+went straight to "Installing Windows 11" without a prompt.
 
 ## Changes in 0.1.8
 
