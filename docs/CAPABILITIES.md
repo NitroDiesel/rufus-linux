@@ -42,6 +42,16 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
 
+## Changes in 0.1.8
+
+Progress readouts name their units. Byte stages show transferred and total
+size, transfer rate, and time left, such as
+`380.2 MB / 8.42 GB · 40.0 MB/s · 3:26 left`; other stages read "Step 3 of 7".
+The Size (Auto, Bytes, KB, MB, GB) and Speed (KB/s, Kbps, MB/s, Mbps, GB/s,
+Gbps) choices in the Status header persist in
+`$XDG_CONFIG_HOME/rufus-linux/settings.conf`. Byte multiples are binary, like
+the device list; bit rates are decimal, as network speeds are quoted.
+
 ## Changes in 0.1.7
 
 The partition scheme list follows upstream Rufus: **Super Floppy Disk** (the

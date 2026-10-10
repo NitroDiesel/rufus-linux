@@ -20,7 +20,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_VERSION: 0.1.7
+  PACKAGE_VERSION: 0.1.8
 
 jobs:
   debian:
@@ -231,8 +231,9 @@ jobs:
             '
       - name: Stage and package AppImage
         env:
-          APPIMAGETOOL_SHA256: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
-          # Pinned to a tagged runtime: the `continuous` tag is republished upstream.
+          # Tool and runtime are pinned to tags: `continuous` is republished upstream.
+          APPIMAGETOOL_TAG: "1.9.1"
+          APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
           RUNTIME_TAG: "20251108"
           RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
         run: |
@@ -241,7 +242,7 @@ jobs:
             dist/rufus-linux-appimage-bin "$appdir"
 
           curl -fL --retry 3 \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_TAG/appimagetool-x86_64.AppImage" \
             -o "$RUNNER_TEMP/appimagetool"
           curl -fL --retry 3 \
             "https://github.com/AppImage/type2-runtime/releases/download/$RUNTIME_TAG/runtime-x86_64" \

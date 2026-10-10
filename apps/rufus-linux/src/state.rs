@@ -18,6 +18,8 @@ use rufus_image::ImageReport;
 use rufus_linux_platform::{list_block_devices, probe_capabilities};
 
 use crate::helper_client::{detect_backend, Backend};
+use crate::settings::Settings;
+use crate::units::{SizeUnit, SpeedUnit};
 
 pub const DEFAULT_VOLUME_LABEL: &str = "RUFUS";
 /// Upstream's name for a whole-device filesystem without a partition table.
@@ -85,6 +87,8 @@ pub struct AppState {
     pub status_operation: String,
     pub status_progress: f64,
     pub status_telemetry: String,
+    last_sample: Option<crate::units::Sample>,
+    pub settings: Settings,
     pub status_tone: String,
     pub status_active: bool,
     pub status_line: String,
@@ -130,6 +134,8 @@ impl AppState {
             status_operation: "Ready".into(),
             status_progress: 0.0,
             status_telemetry: String::new(),
+            last_sample: None,
+            settings: Settings::load(),
             status_tone: "neutral".into(),
             status_active: false,
             status_line: "Select a device and image, then Start.".into(),
@@ -832,6 +838,8 @@ impl AppState {
         self.status_phase = "PREPARE".into();
         self.status_operation = "Starting…".into();
         self.status_progress = 0.0;
+        self.last_sample = None;
+        self.status_telemetry.clear();
         self.status_line = "Authorizing and preparing…".into();
         self.push_log(format!("Starting {}.", self.action_name()));
         self.recompute();
@@ -844,8 +852,10 @@ impl AppState {
             }
             HelperEvent::Progress {
                 stage,
+                unit,
                 completed,
                 total,
+                bytes_per_second,
                 detail,
                 ..
             } => {
@@ -856,10 +866,13 @@ impl AppState {
                         self.status_progress = (*completed as f64 / *t as f64) * 100.0;
                     }
                 }
-                self.status_telemetry = match total {
-                    Some(t) => format!("{completed}/{t}"),
-                    None => String::new(),
-                };
+                self.last_sample = Some(crate::units::Sample {
+                    unit: *unit,
+                    completed: *completed,
+                    total: *total,
+                    bytes_per_second: *bytes_per_second,
+                });
+                self.refresh_telemetry();
                 self.status_line = self.status_operation.clone();
             }
             HelperEvent::Log { line, .. } => self.push_log(line.clone()),
@@ -871,8 +884,30 @@ impl AppState {
         }
     }
 
+    pub fn set_display_units(&mut self, size: Option<SizeUnit>, speed: Option<SpeedUnit>) {
+        if let Some(size) = size {
+            self.settings.size_unit = size;
+        }
+        if let Some(speed) = speed {
+            self.settings.speed_unit = speed;
+        }
+        self.settings.save();
+        self.refresh_telemetry();
+    }
+
+    fn refresh_telemetry(&mut self) {
+        self.status_telemetry = self
+            .last_sample
+            .map(|sample| {
+                crate::units::telemetry(&sample, self.settings.size_unit, self.settings.speed_unit)
+            })
+            .unwrap_or_default();
+    }
+
     pub fn finish_ok(&mut self) {
         self.is_busy = false;
+        self.last_sample = None;
+        self.status_telemetry.clear();
         self.status_active = false;
         self.status_phase = "DONE".into();
         self.status_operation = "Completed".into();

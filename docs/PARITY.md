@@ -66,13 +66,14 @@ remains the authority on what a release enables.
 | Drive capture to VHD/VHDX/ISO/FFU | planned | Needs a user-opened output descriptor. |
 | Language selection (i18n) | planned | `rufus-i18n` groundwork only. |
 | Update check | planned | Native packages update through the distribution. |
-| Settings persistence and expert/cheat-mode shortcuts | planned | |
+| Settings persistence and expert/cheat-mode shortcuts | partial | Display units persist (0.1.8); other settings and shortcuts planned. |
 | Drag-and-drop image selection | planned | |
 
 ## Linux additions
 
 - Plug-and-play: every write goes through udisks2, so the AppImage needs
   nothing installed (0.1.6). The native helper is the fallback.
+- Selectable size and speed units for progress, with time left (0.1.8).
 
 ## Order
 
