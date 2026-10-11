@@ -23,6 +23,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.1" date="2026-10-10">
+      <description>
+        <p>Progress sizes can be shown in KiB, MiB and GiB as well as
+        decimal KB, MB and GB.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-10">
       <description>
         <p>Asks how to customize Windows 10 and 11 installations, as Rufus

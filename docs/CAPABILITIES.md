@@ -43,6 +43,12 @@ Rufus Linux preserves upstream concepts where Linux has a safe implementation. I
 | UEFI runtime validation and Secure Boot revocation checks | Verified payload, SBAT/SVN/DBX parsing and signed update data are not packaged. |
 | Drive capture | Root must write through a user-opened file descriptor; arbitrary root-owned output paths are intentionally rejected. |
 
+## Changes in 1.0.1
+
+The Status card's size menu adds binary KiB, MiB and GiB. KB, MB and GB are
+now decimal (1000-based), so a fixed unit always means what its name says.
+Auto still scales in binary steps and now labels them KiB, MiB and GiB.
+
 ## Changes in 1.0.0
 
 Start now shows upstream's **Windows User Experience** dialog for Windows 10

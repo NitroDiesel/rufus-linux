@@ -1,5 +1,5 @@
 Name:           rufus-linux
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Format and create bootable USB drives
 License:        GPL-3.0-or-later
@@ -54,6 +54,9 @@ done
 %{_datadir}/icons/hicolor/*/apps/io.github.nitrodiesel.rufus-linux.png
 
 %changelog
+* Sat Oct 10 2026 Rufus Linux contributors - 1.0.1-1
+- Add KiB, MiB and GiB size units; KB, MB and GB are now decimal
+
 * Sat Oct 10 2026 Rufus Linux contributors - 1.0.0-1
 - Offer the Windows User Experience options for Windows 10 and 11 media
 

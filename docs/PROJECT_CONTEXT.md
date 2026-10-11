@@ -18,10 +18,10 @@ Debian/Ubuntu, and Fedora. Feature parity means implementing an upstream concept
 safely on Linux; it does not mean exposing a control before its full operation
 is implemented and verified.
 
-## Current baseline: 1.0.0
+## Current baseline: 1.0.1
 
-Version 1.0.0 is the continuation baseline. Its public installers belong in the
-[v1.0.0 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v1.0.0).
+Version 1.0.1 is the continuation baseline. Its public installers belong in the
+[v1.0.1 release](https://github.com/NitroDiesel/rufus-linux/releases/tag/v1.0.1).
 Release titles are `v<version>`. [`PARITY.md`](PARITY.md) tracks every
 upstream Rufus feature and the order in which the rest will land.
 

@@ -2,26 +2,42 @@
 
 use rufus_core::progress::ProgressUnit;
 
-/// Scale for transferred sizes. Byte multiples are binary, like the device list.
+/// Scale for transferred sizes. KB, MB and GB are decimal; KiB, MiB and GiB
+/// are binary. Auto picks a binary unit, like the device list.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SizeUnit {
     Auto,
     Bytes,
     Kb,
+    Kib,
     Mb,
+    Mib,
     Gb,
+    Gib,
 }
 
 impl SizeUnit {
-    pub const ALL: [Self; 5] = [Self::Auto, Self::Bytes, Self::Kb, Self::Mb, Self::Gb];
+    pub const ALL: [Self; 8] = [
+        Self::Auto,
+        Self::Bytes,
+        Self::Kb,
+        Self::Kib,
+        Self::Mb,
+        Self::Mib,
+        Self::Gb,
+        Self::Gib,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Auto => "Auto",
             Self::Bytes => "Bytes",
             Self::Kb => "KB",
+            Self::Kib => "KiB",
             Self::Mb => "MB",
+            Self::Mib => "MiB",
             Self::Gb => "GB",
+            Self::Gib => "GiB",
         }
     }
 
@@ -35,18 +51,21 @@ impl SizeUnit {
         }
         match bytes {
             0..KIB => Self::Bytes,
-            KIB..MIB => Self::Kb,
-            MIB..GIB => Self::Mb,
-            _ => Self::Gb,
+            KIB..MIB => Self::Kib,
+            MIB..GIB => Self::Mib,
+            _ => Self::Gib,
         }
     }
 
     fn divisor(self) -> u64 {
         match self {
             Self::Auto | Self::Bytes => 1,
-            Self::Kb => KIB,
-            Self::Mb => MIB,
-            Self::Gb => GIB,
+            Self::Kb => 1_000,
+            Self::Mb => 1_000_000,
+            Self::Gb => 1_000_000_000,
+            Self::Kib => KIB,
+            Self::Mib => MIB,
+            Self::Gib => GIB,
         }
     }
 }
@@ -217,7 +236,7 @@ mod tests {
         let sample = bytes(398_710_198, 9_041_688_765, Some(40 * MIB));
         assert_eq!(
             telemetry(&sample, SizeUnit::Auto, SpeedUnit::MBps),
-            "380.2 MB / 8.42 GB · 40.0 MB/s · 3:26 left"
+            "380.2 MiB / 8.42 GiB · 40.0 MB/s · 3:26 left"
         );
     }
 
@@ -225,12 +244,24 @@ mod tests {
     fn fixed_size_units_share_one_suffix() {
         let sample = bytes(398_710_198, 9_041_688_765, None);
         assert_eq!(
+            telemetry(&sample, SizeUnit::Gib, SpeedUnit::MBps),
+            "0.37 / 8.42 GiB"
+        );
+        assert_eq!(
+            telemetry(&sample, SizeUnit::Mib, SpeedUnit::MBps),
+            "380.2 / 8,623 MiB"
+        );
+        assert_eq!(
             telemetry(&sample, SizeUnit::Gb, SpeedUnit::MBps),
-            "0.37 / 8.42 GB"
+            "0.40 / 9.04 GB"
         );
         assert_eq!(
             telemetry(&sample, SizeUnit::Mb, SpeedUnit::MBps),
-            "380.2 / 8,623 MB"
+            "398.7 / 9,042 MB"
+        );
+        assert_eq!(
+            telemetry(&sample, SizeUnit::Kib, SpeedUnit::MBps),
+            "389,365 / 8,829,774 KiB"
         );
         assert_eq!(
             telemetry(&sample, SizeUnit::Bytes, SpeedUnit::MBps),
@@ -258,7 +289,7 @@ mod tests {
         let done = bytes(GIB, GIB, Some(MIB));
         assert_eq!(
             telemetry(&done, SizeUnit::Auto, SpeedUnit::MBps),
-            "1.00 / 1.00 GB · 1.00 MB/s"
+            "1.00 / 1.00 GiB · 1.00 MB/s"
         );
     }
 
